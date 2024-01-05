@@ -20,7 +20,7 @@ pub struct Layer {
 }
 
 impl Layer {
-    
+
 }
 
 pub struct Net {

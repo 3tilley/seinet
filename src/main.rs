@@ -11,7 +11,13 @@ fn main() {
     println!("Hello, world!");
     loop {
         let input = TerminalInput::get_input();
-        println!("{:?}", input);
+        if !input.is_empty() {
+            println!("{:?}", input);
+        }
+        let input = TerminalInput::get_input();
+        if !input.is_empty() {
+            println!("{:?}", input);
+        }
         sleep(Duration::from_millis(60));
     }
 }

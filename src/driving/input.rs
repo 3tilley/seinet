@@ -30,6 +30,9 @@ impl KeyInput {
             key_state,
         }
     }
+     pub fn is_empty(&self) -> bool {
+         self.acceleration.is_none() && self.direction.is_none()
+     }
 }
 
 
@@ -45,7 +48,7 @@ pub struct TerminalInput {
 impl Input for TerminalInput {
 
     fn get_input() -> KeyInput {
-        let stream = crossterm::event::E
+        // let stream = crossterm::event::E
 
         if poll(Duration::from_micros(10)).unwrap() {
             // It's guaranteed that `read` won't block, because `poll` returned
