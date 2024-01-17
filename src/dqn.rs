@@ -22,8 +22,8 @@ pub struct Episode<T: Input, V: Output> {
     pub done: bool,
 }
 
-pub struct DeepQLearning<T, V> {
-    pub net: Net,
+pub struct DeepQLearning<T, V, W, X, Y> {
+    pub net: Net<W, X, Y>,
     pub state_size: usize,
     pub action_size: usize,
     pub exploration_probability: f32,
@@ -32,8 +32,8 @@ pub struct DeepQLearning<T, V> {
     pub experiences: ringbuffer::AllocRingBuffer<Episode<T, V>>,
 }
 
-impl<T, V> DeepQLearning<T, V> {
-    pub fn compute_action<T: Input, V: Output>(&mut self, current_state: T) {
+impl<T: Input, V: Output, W, X, Y> DeepQLearning<T, V, W, X, Y> {
+    pub fn compute_action(&mut self, current_state: T) {
         let explore = self.rng.gen_bool(self.exploration_probability as f64);
         if explore {
             V::from(self.rng.gen_range(0..V::size()))
