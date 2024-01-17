@@ -7,11 +7,12 @@ pub fn relu(x: f32) -> f32 {
     }
 }
 
-pub trait ActivationFunction {
+pub trait ActivationFunction: Default {
     fn activate(x: f32) -> f32;
     fn derivative(x: f32) -> f32;
 }
 
+#[derive(Default)]
 pub struct Relu;
 
 impl ActivationFunction for Relu {
@@ -29,5 +30,23 @@ impl ActivationFunction for Relu {
         } else {
             0.0
         }
+    }
+}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_relu() {
+        assert_eq!(Relu::activate(0.0), 0.0);
+        assert_eq!(Relu::activate(1.0), 1.0);
+        assert_eq!(Relu::activate(-1.0), 0.0);
+    }
+
+    #[test]
+    fn test_relu_deriv() {
+        assert_eq!(Relu::derivative(0.0), 0.0);
+        assert_eq!(Relu::derivative(1.0), 1.0);
+        assert_eq!(Relu::derivative(-1.0), 0.0);
     }
 }

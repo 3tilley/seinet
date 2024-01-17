@@ -1,4 +1,4 @@
-use std::ffi::IntoStringError;
+use rand::Rng;
 use crate::activation_functions::ActivationFunction;
 use crate::loss_functions::LossFunction;
 
@@ -13,6 +13,34 @@ pub struct Neuron<T: ActivationFunction> {
 }
 
 impl<T: ActivationFunction> Neuron<T> {
+
+    pub fn new(rng: &mut impl Rng, input_len: usize) -> Neuron<T> {
+        let mut weights = Vec::with_capacity(input_len);
+        for _ in 0..input_len {
+            weights.push(rng.gen_range(-1.0..1.0));
+        }
+        Neuron {
+            activation_function: T::default(),
+            weights,
+            bias: rng.gen_range(-1.0..1.0),
+            weight_gradients: vec![0.0; input_len],
+            bias_gradient: 0.0,
+            last_preactivation: 0.0,
+            last_output: 0.0,
+        }
+    }
+
+    pub fn from_weights(weights: Vec<f32>, bias: f32) -> Neuron<T> {
+        Neuron {
+            weight_gradients: vec![0.0; weights.len()],
+            activation_function: T::default(),
+            weights,
+            bias,
+            bias_gradient: 0.0,
+            last_preactivation: 0.0,
+            last_output: 0.0,
+        }
+    }
     pub fn evaluate_neuron(&mut self, input: &Vec<f32>) -> f32 {
         assert_eq!(input.len(), self.weights.len());
         let mut sum = self.bias;
@@ -38,6 +66,19 @@ pub struct Layer<T: ActivationFunction> {
 }
 
 impl<T: ActivationFunction> Layer<T> {
+
+    pub fn new(size: usize, input_len: usize, rng: &mut impl rand::Rng) -> Layer<T> {
+        let mut neurons = Vec::with_capacity(size);
+        for _ in 0..size {
+            neurons.push(Neuron::new(rng, input_len));
+        }
+        Layer { neurons, output: vec![0.0; size] }
+    }
+
+    pub fn from_neurons(neurons: Vec<Neuron<T>>) -> Layer<T> {
+        Layer { output: vec![0.0; neurons.len()], neurons  }
+    }
+
     pub fn evaluate_layer(&mut self, input: &Vec<f32>) -> &Vec<f32> {
         for (i, mut neuron) in self.neurons.iter_mut().enumerate() {
             self.output[i] = neuron.evaluate_neuron(input);
@@ -127,4 +168,46 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
         let predicted = self.forward_pass(input);
         W::loss(&expected, predicted)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::activation_functions::Relu;
+    use super::*;
+
+    #[test]
+    fn test_neuron() {
+        let w = vec![2.0,];
+        let b = 3.0;
+        let mut neuron = Neuron::<Relu>::from_weights(w, b);
+        let inputs = vec![-5.0, -4.0, -3.0, -2.0, -1.0, 0.0];
+        let outputs = inputs.iter().map(|inp| neuron.evaluate_neuron(&vec![*inp,])).collect::<Vec<_>>();
+        let expected_outputs = vec![0.0, 0.0, 0.0, 0.0, 1.0, 3.0];
+        assert_eq!(outputs, expected_outputs);
+    }
+
+    #[test]
+    fn test_layer() {
+        let w = vec![2.0,];
+        let b = 3.0;
+        let mut neuron = Neuron::<Relu>::from_weights(w, b);
+        let mut layer = Layer::from_neurons(vec![neuron]);
+        let inputs = vec![-5.0, -4.0, -3.0, -2.0, -1.0, 0.0];
+        let outputs = inputs.iter().map(|inp| layer.evaluate_layer(&vec![*inp,]).clone()).collect::<Vec<_>>();
+        let expected_outputs = vec![0.0f32, 0.0, 0.0, 0.0, 1.0, 3.0].into_iter().map(|o| vec![o]).collect::<Vec<_>>();
+        assert_eq!(outputs, expected_outputs);
+    }
+
+    #[test]
+    fn test_net() {
+        let w = vec![2.0,];
+        let b = 3.0;
+        let mut neuron = Neuron::<Relu>::from_weights(w, b);
+        let mut layer = Layer::from_neurons(vec![neuron]);
+        let inputs = vec![-5.0, -4.0, -3.0, -2.0, -1.0, 0.0];
+        let outputs = inputs.iter().map(|inp| layer.evaluate_layer(&vec![*inp,]).clone()).collect::<Vec<_>>();
+        let expected_outputs = vec![0.0f32, 0.0, 0.0, 0.0, 1.0, 3.0].into_iter().map(|o| vec![o]).collect::<Vec<_>>();
+        assert_eq!(outputs, expected_outputs);
+    }
+
 }
