@@ -103,23 +103,54 @@ pub struct Net<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
     pub loss_function: W,
     pub back_propped: bool,
     pub last_input: Vec<f32>,
+    pub total_weights: usize,
+    all_weights: Vec<f32>,
+    all_gradients: Vec<f32>,
 }
 
 impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W> {
 
-    pub fn from_layers(layers: Vec<Layer<T>>, output_layer: Layer<V>) -> Net<T, V, W> {
+    pub fn new(rng: &mut impl Rng, input_len: usize, output_len: usize, hidden_layers: Vec<usize>) -> Net<T, V, W> {
+        let mut layers = Vec::with_capacity(hidden_layers.len());
+        let mut last_layer_size = input_len;
+        for size in hidden_layers {
+            layers.push(Layer::new(size, last_layer_size, rng));
+            last_layer_size = size;
+        }
+        let output_layer = Layer::new(output_len, last_layer_size, rng);
+        let mut total_len = layers.iter().map(|layer| layer.neurons.iter().map(|neuron| neuron.weights.len()).sum::<usize>()).sum::<usize>();
+        total_len += output_layer.neurons.iter().map(|neuron| neuron.weights.len()).sum::<usize>();
         Net {
             layers,
             output_layer,
             loss_function: W::default(),
             back_propped: false,
             last_input: vec![],
+            total_weights: total_len,
+            all_weights: vec![0.0; total_len],
+            all_gradients: vec![0.0; total_len],
         }
     }
 
-    pub fn forward_pass(&mut self, input: Vec<f32>) -> &Vec<f32> {
+    pub fn from_layers(layers: Vec<Layer<T>>, output_layer: Layer<V>) -> Net<T, V, W> {
+        let mut total_len = layers.iter().map(|layer| layer.neurons.iter().map(|neuron| neuron.weights.len()).sum::<usize>()).sum::<usize>();
+        total_len += output_layer.neurons.iter().map(|neuron| neuron.weights.len()).sum::<usize>();
+        Net {
+            layers,
+            output_layer,
+            loss_function: W::default(),
+            back_propped: false,
+            last_input: vec![],
+            total_weights: total_len,
+            all_weights: vec![0.0; total_len],
+            all_gradients: vec![0.0; total_len],
+        }
+    }
+
+    pub fn forward_pass(&mut self, input: &Vec<f32>) -> &Vec<f32> {
         self.back_propped = false;
-        self.last_input = input;
+        // TODO: Fix this, cloning isn't ideal on a hot path
+        self.last_input = input.clone();
         let mut working_vec = &self.last_input;
         for mut layer in self.layers.iter_mut() {
             working_vec = layer.evaluate_layer(working_vec)
@@ -175,9 +206,28 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
 
     }
 
-    pub fn evaluate_loss(&mut self, input: Vec<f32>, expected: Vec<f32>) -> f32 {
+    pub fn evaluate_loss(&mut self, input: &Vec<f32>, expected: &Vec<f32>, back_propagate: bool) -> f32 {
         let predicted = self.forward_pass(input);
-        W::loss(&expected, predicted)
+        let loss = W::loss(expected, predicted);
+        if back_propagate {
+            self.back_propagate(expected);
+        }
+        loss
+    }
+
+    pub fn gradient_vector(&mut self) -> &Vec<f32> {
+        assert!(self.back_propped);
+        let mut i = 0;
+        for layer in &self.layers {
+            for neuron in &layer.neurons {
+                for grad in &neuron.weight_gradients {
+                    self.all_gradients[i] = *grad;
+                    i += 1;
+                }
+            }
+        }
+        assert_eq!(i, self.all_gradients.len() - 1);
+        &self.all_gradients
     }
 }
 
@@ -219,7 +269,7 @@ mod tests {
         let mut layer = Layer::from_neurons(vec![neuron]);
         let mut net = Net::<Relu, Relu, RootMeanSquared>::from_layers(vec![], layer);
         let inputs = vec![-5.0, -4.0, -3.0, -2.0, -1.0, 0.0];
-        let outputs = inputs.iter().map(|inp| net.forward_pass(vec![*inp,]).clone()).collect::<Vec<_>>();
+        let outputs = inputs.iter().map(|inp| net.forward_pass(&vec![*inp,]).clone()).collect::<Vec<_>>();
         let expected_outputs = vec![0.0f32, 0.0, 0.0, 0.0, 1.0, 3.0].into_iter().map(|o| vec![o]).collect::<Vec<_>>();
         assert_eq!(outputs, expected_outputs);
     }
@@ -234,8 +284,8 @@ mod tests {
         let inputs = vec![-5.0, -4.0, -3.0, -2.0, -1.0, 0.0];
         let expected_outputs = vec![0.0f32, 0.0, 0.0, 0.0, 1.0, 3.0].into_iter().map(|o| vec![o]).collect::<Vec<_>>();
         for (inp, expected) in inputs.into_iter().zip(expected_outputs) {
-            let predicted = net.forward_pass(vec![inp]);
-            let loss = net.evaluate_loss(vec![inp], expected.clone());
+            let predicted = net.forward_pass(&vec![inp]);
+            let loss = net.evaluate_loss(&vec![inp], &expected, );
             assert!(loss < F32_EPSILON);
             net.back_propagate(&expected.clone());
             print!("Weights: {:?}, Gradients: {:?}", net.output_layer.neurons[0].weights, net.output_layer.neurons[0].weight_gradients);
