@@ -1,4 +1,5 @@
 use rand::prelude::SliceRandom;
+use tracing::info;
 use crate::activation_functions::Relu;
 use crate::loss_functions::RootMeanSquared;
 use crate::neuron::Net;
@@ -46,6 +47,11 @@ impl RunningAverage {
             *running += (new - *running) / (self.num_averages as f32);
         })
     }
+
+    pub fn reset(&mut self) {
+        self.num_averages = 0;
+        self.values.fill(0.0);
+    }
 }
 
 pub struct BasicHarness {
@@ -54,6 +60,7 @@ pub struct BasicHarness {
     pub testing_data: Vec<(Vec<f32>, Vec<f32>)>,
     pub running_averages: RunningAverage,
     loss_limit: f32,
+    learning_rate: f32,
 }
 
 impl BasicHarness {
@@ -68,6 +75,7 @@ impl BasicHarness {
             training_data: training.into(),
             testing_data: testing.into(),
             loss_limit: 0.01,
+            learning_rate: 0.1,
         }
     }
 
@@ -78,12 +86,34 @@ impl BasicHarness {
     }
 
     pub fn train_epoch(&mut self) -> bool {
+        // An epoch is all training data for one cycle
         let mut loss = 0.0;
         for i in 0..self.training_data.len() {
             // TODO: Fix this to prevent cloning
             let (input, output) = &self.training_data[i].clone();
             loss += self.evaluate_and_store(input, output);
         }
-        loss < self.loss_limit
+        loss /= self.training_data.len() as f32;
+        info!("Loss: {}", loss);
+        let total_loss = loss < self.loss_limit;
+        self.update_weights();
+        self.running_averages.reset();
+        total_loss
+    }
+
+    pub fn train_n_or_converge(&mut self, n: usize) {
+        let mut epochs = 0;
+        let mut converged = false;
+        while !converged && epochs <= n {
+            epochs += 1;
+            info!("Epoch: {}", epochs);
+            converged = self.train_epoch();
+        }
+    }
+
+    pub fn update_weights(&mut self) {
+        // TOOD: Thing of the resetting the averages and avoiding this clone
+        let gradient_deltas = self.running_averages.values.iter().map(|v| -v * self.learning_rate).collect::<Vec<_>>();
+        self.net.update_weights(&gradient_deltas);
     }
 }

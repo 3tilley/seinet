@@ -97,6 +97,12 @@ impl<T: ActivationFunction> Layer<T> {
 //     }
 // }
 
+// pub struct GradientIterator<T, V, W> {
+//     net: Net<T, V, W>,
+//     output_index: usize,
+//     layer_index: usize,
+// }
+
 pub struct Net<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
     pub layers: Vec<Layer<T>>,
     pub output_layer: Layer<V>,
@@ -226,8 +232,33 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                 }
             }
         }
-        assert_eq!(i, self.all_gradients.len() - 1);
+        for neuron in &self.output_layer.neurons {
+            for grad in &neuron.weight_gradients {
+                self.all_gradients[i] = *grad;
+                i += 1;
+            }
+        }
+        assert_eq!(i, self.all_gradients.len());
         &self.all_gradients
+    }
+
+    pub fn update_weights(&mut self, weight_delta: &Vec<f32>) {
+        let mut i = 0;
+        for layer in self.layers.iter_mut() {
+            for mut neuron in layer.neurons.iter_mut() {
+                for weight in neuron.weights.iter_mut() {
+                    *weight += weight_delta[i];
+                    i += 1;
+                }
+            }
+        }
+        for mut neuron in self.output_layer.neurons.iter_mut() {
+            for weight in neuron.weights.iter_mut() {
+                *weight += weight_delta[i];
+                i += 1;
+            }
+        }
+        assert_eq!(i, self.all_gradients.len());
     }
 }
 

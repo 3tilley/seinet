@@ -1,5 +1,6 @@
 use std::thread::sleep;
 use std::time::Duration;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 use crate::activation_functions::Relu;
 use crate::fitting::BasicHarness;
 use crate::loss_functions::RootMeanSquared;
@@ -23,7 +24,11 @@ fn relu_2_3b(x: f32) -> f32 {
 }
 
 fn main() {
-    println!("Hello, world!");
+    println!("Starting training...");
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .init();
     let mut inputs = Vec::new();
     let start = -5.0;
     let end = 5.0;
@@ -38,6 +43,5 @@ fn main() {
     let mut net = Net::<Relu, Relu, RootMeanSquared>::new(&mut rng, 1, 1, vec![]);
     // let net = Net<Relu, Relu, RootMeanSquared>::new()
     let mut basic = BasicHarness::new(net, outputs, 0.01);
-    basic.train_epoch();
-
+    basic.train_n_or_converge(100000);
 }
