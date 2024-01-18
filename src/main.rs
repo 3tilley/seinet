@@ -7,6 +7,7 @@ mod neuron;
 mod vectors;
 mod fitting;
 mod loss_functions;
+mod float_utils;
 
 fn main() {
     println!("Hello, world!");

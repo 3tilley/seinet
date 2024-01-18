@@ -1,0 +1,1 @@
+pub const F32_EPSILON: f32 = 10e-10;

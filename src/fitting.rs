@@ -16,3 +16,7 @@ struct StochasticGradientDescent {
 struct GradientDescent {
 
 }
+
+pub trait FittingStrategy {
+    
+}

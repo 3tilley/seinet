@@ -1,9 +1,10 @@
 
 
-pub trait LossFunction {
+pub trait LossFunction : Default {
     fn loss(expected: &Vec<f32>, actual: &Vec<f32>) -> f32;
     fn derivative(expected: &Vec<f32>, actual: &Vec<f32>) -> Vec<f32>;
 }
+#[derive(Default)]
 pub struct RootMeanSquared;
 
 impl LossFunction for RootMeanSquared {
