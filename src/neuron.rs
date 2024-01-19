@@ -242,6 +242,26 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
         &self.all_gradients
     }
 
+    pub fn weight_vector(&mut self) -> &Vec<f32> {
+        let mut i = 0;
+        for layer in &self.layers {
+            for neuron in &layer.neurons {
+                for weight in &neuron.weights {
+                    self.all_weights[i] = *weight;
+                    i += 1;
+                }
+            }
+        }
+        for neuron in &self.output_layer.neurons {
+            for weight in &neuron.weights {
+                self.all_weights[i] = *weight;
+                i += 1;
+            }
+        }
+        assert_eq!(i, self.all_gradients.len());
+        &self.all_gradients
+    }
+
     pub fn update_weights(&mut self, weight_delta: &Vec<f32>) {
         let mut i = 0;
         for layer in self.layers.iter_mut() {

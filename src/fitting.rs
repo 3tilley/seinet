@@ -54,11 +54,35 @@ impl RunningAverage {
     }
 }
 
+pub struct Progress {
+    pub errors: Vec<f32>,
+    pub weights: Vec<Vec<f32>>,
+    pub gradients: Vec<Vec<f32>>,
+}
+
+impl Progress {
+    pub fn new() -> Progress {
+        Progress {
+            errors: Vec::new(),
+            weights: vec![],
+            gradients: vec![],
+        }
+    }
+
+    pub fn update(&mut self, errors: f32, weights: &Vec<f32>, gradients: &Vec<f32>) {
+        self.errors.push(errors);
+        self.weights.push(weights.clone());
+        self.gradients.push(gradients.clone());
+    }
+
+}
+
 pub struct BasicHarness {
     pub net: Net<Relu, Relu, RootMeanSquared>,
     pub training_data: Vec<(Vec<f32>, Vec<f32>)>,
     pub testing_data: Vec<(Vec<f32>, Vec<f32>)>,
     pub running_averages: RunningAverage,
+    pub progress: Progress,
     loss_limit: f32,
     learning_rate: f32,
 }
@@ -76,6 +100,7 @@ impl BasicHarness {
             testing_data: testing.into(),
             loss_limit: 0.01,
             learning_rate: 0.1,
+            progress: Progress::new(),
         }
     }
 
@@ -96,6 +121,7 @@ impl BasicHarness {
         loss /= self.training_data.len() as f32;
         info!("Loss: {}", loss);
         let total_loss = loss < self.loss_limit;
+        self.progress.update(loss, &self.net.weight_vector().clone(), &self.net.gradient_vector());
         self.update_weights();
         self.running_averages.reset();
         total_loss
