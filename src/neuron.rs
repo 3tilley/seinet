@@ -2,6 +2,7 @@ use rand::Rng;
 use crate::activation_functions::ActivationFunction;
 use crate::loss_functions::LossFunction;
 
+#[derive(Clone)]
 pub struct Neuron<T: ActivationFunction> {
     activation_function: T,
     weights: Vec<f32>,
@@ -10,6 +11,16 @@ pub struct Neuron<T: ActivationFunction> {
     bias_gradient: f32,
     last_preactivation: f32,
     last_output: f32,
+}
+
+pub trait NeuronTrait {
+    fn gradients(&self) -> &Vec<f32>;
+}
+
+impl<T: ActivationFunction> NeuronTrait for Neuron<T> {
+    fn gradients(&self) -> &Vec<f32> {
+        &self.weight_gradients
+    }
 }
 
 impl<T: ActivationFunction> Neuron<T> {
@@ -60,6 +71,7 @@ impl<T: ActivationFunction> Neuron<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct Layer<T: ActivationFunction> {
     neurons: Vec<Neuron<T>>,
     output: Vec<f32>,
@@ -87,22 +99,30 @@ impl<T: ActivationFunction> Layer<T> {
     }
 }
 
-// pub trait Layer {
-//    fn evaluate_layer(&mut self, input: &Vec<f32>) -> &Vec<f32>;
+// pub struct NeuronIterator<T, V, W> {
+//     net: Net<T, V, W>,
+//     layer_i: usize,
+//     neuron_i: usize,
+//     hidden_layers_finished: bool,
 // }
 //
-// impl<T> Layer for GenericLayer<T> {
-//     fn evaluate_layer(&mut self, input: &Vec<f32>) -> &Vec<f32> {
-//         self.evaluate_layer(input)
+// impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Iterator for NeuronIterator<T, V, W> {
+//     type Item<'a> = &'a impl NeuronTrait;
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.hidden_layers_finished {
+//             if self.neuron_i = self.net.output_layer.neurons.len() {
+//                 None
+//             } else {
+//                 &self.net.output_layer.neurons[self.neuron_i];
+//                 self.neuron_i += 1;
+//             }
+//         }
+//         None
 //     }
 // }
 
-// pub struct GradientIterator<T, V, W> {
-//     net: Net<T, V, W>,
-//     output_index: usize,
-//     layer_index: usize,
-// }
-
+#[derive(Clone)]
 pub struct Net<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
     pub layers: Vec<Layer<T>>,
     pub output_layer: Layer<V>,
@@ -124,23 +144,13 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
             last_layer_size = size;
         }
         let output_layer = Layer::new(output_len, last_layer_size, rng);
-        let mut total_len = layers.iter().map(|layer| layer.neurons.iter().map(|neuron| neuron.weights.len()).sum::<usize>()).sum::<usize>();
-        total_len += output_layer.neurons.iter().map(|neuron| neuron.weights.len()).sum::<usize>();
-        Net {
-            layers,
-            output_layer,
-            loss_function: W::default(),
-            back_propped: false,
-            last_input: vec![],
-            total_weights: total_len,
-            all_weights: vec![0.0; total_len],
-            all_gradients: vec![0.0; total_len],
-        }
+        Net::from_layers(layers, output_layer)
     }
 
     pub fn from_layers(layers: Vec<Layer<T>>, output_layer: Layer<V>) -> Net<T, V, W> {
-        let mut total_len = layers.iter().map(|layer| layer.neurons.iter().map(|neuron| neuron.weights.len()).sum::<usize>()).sum::<usize>();
-        total_len += output_layer.neurons.iter().map(|neuron| neuron.weights.len()).sum::<usize>();
+        // + 1 to account for bias on each neuron
+        let mut total_len = layers.iter().map(|layer| layer.neurons.iter().map(|neuron| neuron.weights.len() + 1).sum::<usize>()).sum::<usize>();
+        total_len += output_layer.neurons.iter().map(|neuron| neuron.weights.len() + 1).sum::<usize>();
         Net {
             layers,
             output_layer,
@@ -230,6 +240,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                     self.all_gradients[i] = *grad;
                     i += 1;
                 }
+                self.all_gradients[i] = neuron.bias_gradient;
+                i += 1;
             }
         }
         for neuron in &self.output_layer.neurons {
@@ -237,6 +249,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                 self.all_gradients[i] = *grad;
                 i += 1;
             }
+            self.all_gradients[i] = neuron.bias_gradient;
+            i += 1;
         }
         assert_eq!(i, self.all_gradients.len());
         &self.all_gradients
@@ -250,6 +264,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                     self.all_weights[i] = *weight;
                     i += 1;
                 }
+                self.all_weights[i] = neuron.bias;
+                i += 1;
             }
         }
         for neuron in &self.output_layer.neurons {
@@ -257,6 +273,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                 self.all_weights[i] = *weight;
                 i += 1;
             }
+            self.all_weights[i] = neuron.bias;
+            i += 1;
         }
         assert_eq!(i, self.all_gradients.len());
         &self.all_gradients
@@ -270,6 +288,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                     *weight += weight_delta[i];
                     i += 1;
                 }
+                neuron.bias += weight_delta[i];
+                i += 1;
             }
         }
         for mut neuron in self.output_layer.neurons.iter_mut() {
@@ -277,6 +297,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                 *weight += weight_delta[i];
                 i += 1;
             }
+            neuron.bias += weight_delta[i];
+            i += 1;
         }
         assert_eq!(i, self.all_gradients.len());
     }
