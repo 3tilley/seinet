@@ -8,7 +8,7 @@ use tracing_subscriber::fmt::writer::MakeWriterExt;
 use crate::activation_functions::{ActivationFunction, Relu};
 use crate::fitting::{BasicHarness, Progress};
 use crate::loss_functions::{LossFunction, RootMeanSquared};
-use crate::neuron::Net;
+use crate::neuron::{Label, Net};
 
 mod activation_functions;
 mod neuron;
@@ -48,25 +48,26 @@ fn make_trace_from_output<T: ActivationFunction, U: ActivationFunction, V: LossF
     scatters
 }
 
-fn make_trace_from_weights<T: ActivationFunction, U: ActivationFunction, V: LossFunction>(inputs: &Vec<f32>, progress: &Progress) -> Vec<Box<Line>>{
-    Line::f
-    let outputs = inputs.iter().map(|inp| net.forward_pass(&vec![*inp]).clone()).collect::<Vec<Vec<f32>>>();
+fn make_trace_from_weights(inputs: &Vec<f32>, labels: Vec<Label>, progress: &Progress) -> Vec<Box<Scatter<f32, f32>>>{
+    let xs = (0..progress.weights.len()).map(|i| i as f32).collect::<Vec<f32>>();
     let mut scatters = Vec::new();
-    for i in 0..1 {
-        let scat = Scatter::new(inputs.clone(), outputs.iter().map(|output| output[0]).collect()).name(format!("y{}_net", i));
+    for (w, label) in progress.weights.iter().zip(labels) {
+        let scat = Scatter::new(xs.clone(),w.clone()).name(label.to_string());
         scatters.push(scat);
     }
     scatters
 }
 
-fn stacked_subplots(traces: Vec<Box<Scatter<f32, f32>>>) -> Plot {
+fn stacked_subplots(traces: Vec<Vec<Box<Scatter<f32, f32>>>>) -> Plot {
     let mut plot = Plot::new();
     let mut layout = Layout::new().grid(
         LayoutGrid::new()
             .columns(1)
             .rows(traces.len())
     );
-    plot.add_traces(traces.into_iter().map(|t| t as Box<dyn Trace>).collect());
+    for group in traces {
+        plot.add_traces(group.into_iter().map(|t| t as Box<dyn Trace>).collect());
+    }
     plot.set_layout(layout);
     plot
 }
@@ -90,6 +91,7 @@ fn main() {
     let outputs = inputs.iter().map(|inp| (vec![*inp], vec![relu_2_3b(*inp)])).collect::<Vec<_>>();
 
     let mut net = Net::<Relu, Relu, RootMeanSquared>::new(&mut rng, 1, 1, vec![]);
+    let net_labels = net.labels();
     let mut basic = BasicHarness::new(net, outputs, 0.01);
     basic.train_n_or_converge(1000);
 
@@ -112,7 +114,8 @@ fn main() {
     let mut traces = make_trace_from_output(&inputs, &mut out_net);
     let actual = Scatter::new(inputs.clone(), inputs.iter().map(|inp| relu_2_3b(*inp)).collect()).name(format!("y{}_actual", 1));
     traces.push(actual);
-    let plot_2 = stacked_subplots(traces);
+    let weights_trace = make_trace_from_weights(&inputs, net_labels, &basic.progress);
+    let plot_2 = stacked_subplots(vec![traces, weights_trace]);
     plot_2.show();
     sleep(Duration::from_secs(5));
 }
