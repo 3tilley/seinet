@@ -33,6 +33,20 @@ impl ActivationFunction for Relu {
     }
 }
 
+#[derive(Default)]
+pub struct Sigmoid;
+
+impl ActivationFunction for Sigmoid {
+    fn activate(x: f32) -> f32 {
+        1.0 / (1.0 + (-x).exp())
+    }
+
+    fn derivative(x: f32) -> f32 {
+        let sig = Sigmoid::activate(x);
+        sig * (1.0 - sig)
+    }
+}
+
 mod tests {
     use super::*;
 

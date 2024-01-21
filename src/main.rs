@@ -3,7 +3,7 @@ use std::time::Duration;
 use plotly::common::{Line, Mode, Title};
 use plotly::layout::{Axis, LayoutGrid};
 use plotly::{Layout, Plot, Scatter, Trace};
-use tracing_subscriber::fmt::format;
+use plotly::layout::GridPattern::Independent;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 use crate::activation_functions::{ActivationFunction, Relu};
 use crate::fitting::{BasicHarness, Progress};
@@ -17,6 +17,7 @@ mod vectors;
 mod fitting;
 mod loss_functions;
 mod float_utils;
+mod online_example;
 
 fn relu_2_3b(x: f32) -> f32 {
     let weighted_sum = 2.0 * x + 3.0;
@@ -51,10 +52,17 @@ fn make_trace_from_output<T: ActivationFunction, U: ActivationFunction, V: LossF
 fn make_trace_from_weights(inputs: &Vec<f32>, labels: Vec<Label>, progress: &Progress) -> Vec<Box<Scatter<f32, f32>>>{
     let xs = (0..progress.weights.len()).map(|i| i as f32).collect::<Vec<f32>>();
     let mut scatters = Vec::new();
-    for (w, label) in progress.weights.iter().zip(labels) {
+    let mut trans_weights = vec![Vec::new(); progress.weights[0].len()];
+    for (i, timestep_weights) in progress.weights.iter().enumerate() {
+        for (i,weight) in timestep_weights.iter().enumerate() {
+            trans_weights[i].push(*weight);
+        }
+    }
+    for (w, label) in trans_weights.iter().zip(labels) {
         let scat = Scatter::new(xs.clone(),w.clone()).name(label.to_string());
         scatters.push(scat);
     }
+    scatters.push(Scatter::new(xs.clone(), progress.errors.clone()).name("error").mode(Mode::LinesMarkers).line(Line::new().color("red")));
     scatters
 }
 
@@ -64,9 +72,14 @@ fn stacked_subplots(traces: Vec<Vec<Box<Scatter<f32, f32>>>>) -> Plot {
         LayoutGrid::new()
             .columns(1)
             .rows(traces.len())
+            .pattern(Independent)
     );
-    for group in traces {
-        plot.add_traces(group.into_iter().map(|t| t as Box<dyn Trace>).collect());
+    for (i, group) in traces.into_iter().enumerate() {
+        let x_axis = format!("x{}", i+1);
+        let y_axis = format!("y{}", i+1);
+        plot.add_traces(group.into_iter().map(|t| {
+            t.x_axis(&x_axis).y_axis(&y_axis) as Box<dyn Trace>
+        }).collect());
     }
     plot.set_layout(layout);
     plot
@@ -75,7 +88,7 @@ fn stacked_subplots(traces: Vec<Vec<Box<Scatter<f32, f32>>>>) -> Plot {
 fn main() {
     println!("Starting training...");
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         .with_target(false)
         .init();
     let mut inputs = Vec::new();
@@ -93,7 +106,7 @@ fn main() {
     let mut net = Net::<Relu, Relu, RootMeanSquared>::new(&mut rng, 1, 1, vec![]);
     let net_labels = net.labels();
     let mut basic = BasicHarness::new(net, outputs, 0.01);
-    basic.train_n_or_converge(1000);
+    basic.train_n_or_converge(10);
 
     // Plotly
     let trace = Scatter::new(basic.progress.weights.iter().map(|w| w[0]).collect(), basic.progress.errors.clone()).mode(Mode::Markers).line(Line::new().color("blue"));

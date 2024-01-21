@@ -4,13 +4,13 @@ use crate::loss_functions::LossFunction;
 
 #[derive(Clone)]
 pub struct Neuron<T: ActivationFunction> {
-    activation_function: T,
-    weights: Vec<f32>,
-    bias: f32,
-    weight_gradients: Vec<f32>,
-    bias_gradient: f32,
-    last_preactivation: f32,
-    last_output: f32,
+    pub activation_function: T,
+    pub weights: Vec<f32>,
+    pub bias: f32,
+    pub weight_gradients: Vec<f32>,
+    pub bias_gradient: f32,
+    pub last_preactivation: f32,
+    pub last_output: f32,
 }
 
 pub trait NeuronTrait {
@@ -73,7 +73,7 @@ impl<T: ActivationFunction> Neuron<T> {
 
 #[derive(Clone)]
 pub struct Layer<T: ActivationFunction> {
-    neurons: Vec<Neuron<T>>,
+    pub neurons: Vec<Neuron<T>>,
     output: Vec<f32>,
 }
 
@@ -134,7 +134,7 @@ pub struct Net<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
     all_gradients: Vec<f32>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayerType {
     Input,
     Hidden(usize),
@@ -153,16 +153,17 @@ impl LayerType {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WeightType {
     Bias,
     Weight(usize),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Label {
-    layer: LayerType,
-    neuron: usize,
-    weight: WeightType
+    pub layer: LayerType,
+    pub neuron: usize,
+    pub weight: WeightType
 }
 
 impl Label {
@@ -428,7 +429,7 @@ mod tests {
         let expected_outputs = vec![0.0f32, 0.0, 0.0, 0.0, 1.0, 3.0].into_iter().map(|o| vec![o]).collect::<Vec<_>>();
         for (inp, expected) in inputs.into_iter().zip(expected_outputs) {
             let predicted = net.forward_pass(&vec![inp]);
-            let loss = net.evaluate_loss(&vec![inp], &expected, );
+            let loss = net.evaluate_loss(&vec![inp], &expected, false);
             assert!(loss < F32_EPSILON);
             net.back_propagate(&expected.clone());
             print!("Weights: {:?}, Gradients: {:?}", net.output_layer.neurons[0].weights, net.output_layer.neurons[0].weight_gradients);

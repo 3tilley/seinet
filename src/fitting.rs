@@ -1,5 +1,5 @@
 use rand::prelude::SliceRandom;
-use tracing::info;
+use tracing::{debug, info};
 use crate::activation_functions::Relu;
 use crate::loss_functions::RootMeanSquared;
 use crate::neuron::Net;
@@ -73,6 +73,8 @@ impl Progress {
         self.errors.push(errors);
         self.weights.push(weights.clone());
         self.gradients.push(gradients.clone());
+        debug!("Weights: {:?}", self.weights);
+        debug!("Gradients: {:?}", self.gradients);
     }
 
 }
@@ -98,7 +100,7 @@ impl BasicHarness {
             net,
             training_data: training.into(),
             testing_data: testing.into(),
-            loss_limit: 0.01,
+            loss_limit: 0.00001,
             learning_rate: 0.1,
             progress: Progress::new(),
         }
@@ -130,7 +132,7 @@ impl BasicHarness {
     pub fn train_n_or_converge(&mut self, n: usize) {
         let mut epochs = 0;
         let mut converged = false;
-        while !converged && epochs <= n {
+        while !converged && epochs < n {
             epochs += 1;
             info!("Epoch: {}", epochs);
             converged = self.train_epoch();
@@ -138,7 +140,7 @@ impl BasicHarness {
     }
 
     pub fn update_weights(&mut self) {
-        // TOOD: Thing of the resetting the averages and avoiding this clone
+        // TOOD: Think of the resetting the averages and avoiding this clone
         let gradient_deltas = self.running_averages.values.iter().map(|v| -v * self.learning_rate).collect::<Vec<_>>();
         self.net.update_weights(&gradient_deltas);
     }
