@@ -74,6 +74,7 @@ impl<T: ActivationFunction> Neuron<T> {
 #[derive(Clone)]
 pub struct Layer<T: ActivationFunction> {
     pub neurons: Vec<Neuron<T>>,
+    total_indices: usize,
     output: Vec<f32>,
 }
 
@@ -81,14 +82,19 @@ impl<T: ActivationFunction> Layer<T> {
 
     pub fn new(size: usize, input_len: usize, rng: &mut impl rand::Rng) -> Layer<T> {
         let mut neurons = Vec::with_capacity(size);
+        let total_indices = size * (input_len + 1);
         for _ in 0..size {
             neurons.push(Neuron::new(rng, input_len));
         }
-        Layer { neurons, output: vec![0.0; size] }
+        Layer { neurons, output: vec![0.0; size], total_indices }
     }
 
     pub fn from_neurons(neurons: Vec<Neuron<T>>) -> Layer<T> {
-        Layer { output: vec![0.0; neurons.len()], neurons  }
+        let mut total_indices = 0;
+        for neuron in &neurons {
+            total_indices += neuron.weights.len() + 1;
+        }
+        Layer { output: vec![0.0; neurons.len()], neurons, total_indices  }
     }
 
     pub fn evaluate_layer(&mut self, input: &Vec<f32>) -> &Vec<f32> {
@@ -143,12 +149,10 @@ pub enum LayerType {
 
 impl LayerType {
     pub fn from_index(num_layers: usize, layer_index: usize) -> LayerType {
-        if layer_index == 0 {
-            LayerType::Input
-        } else if layer_index == num_layers - 1 {
+        if layer_index == num_layers {
             LayerType::Output
         } else {
-            LayerType::Hidden(layer_index - 1)
+            LayerType::Hidden(layer_index)
         }
     }
 }
@@ -242,10 +246,10 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
             None => &self.last_input,
             Some(layer) => &layer.output,
         };
-        for (j, mut neuron) in self.output_layer.neurons.iter_mut().enumerate() {
-            neuron.bias_gradient = errors[j];
+        for (n, mut neuron) in self.output_layer.neurons.iter_mut().enumerate() {
+            neuron.bias_gradient = errors[n];
             for j in 0..neuron.weight_gradients.len() {
-                neuron.weight_gradients[j] = errors[j] * previous_activation[j];
+                neuron.weight_gradients[j] = errors[n] * previous_activation[j];
             }
         }
         let mut layer_ahead = &self.output_layer;
@@ -264,10 +268,10 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                 }
                 weight_sum * h_prime
             }).collect();
-            for (j, mut neuron) in layer.neurons.iter_mut().enumerate() {
-                neuron.bias_gradient = errors[j];
+            for (n, mut neuron) in layer.neurons.iter_mut().enumerate() {
+                neuron.bias_gradient = errors[n];
                 for j in 0..neuron.weights.len() {
-                    neuron.weight_gradients[j] = errors[j] * previous_activation[j];
+                    neuron.weight_gradients[j] = errors[n] * previous_activation[j];
                 }
             }
         }
@@ -301,6 +305,36 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
         }
         labels
     }
+
+    pub fn index_for_label(&self, label: &Label) -> usize {
+        let mut i = 0;
+        let mut neuron_size = 0;
+        match label.layer {
+            LayerType::Hidden(x0) => {
+                for j in 0..x0 {
+                    i += self.layers[j].total_indices;
+                }
+                // This assumes all neurons in the layer have the same number of weights
+                neuron_size = self.layers[x0].neurons[0].weights.len() + 1;
+                i += label.neuron * neuron_size;
+            },
+            LayerType::Output => {
+                for j in 0..self.layers.len() {
+                    i += self.layers[j].total_indices;
+                }
+                // Same assumption that all neurons in the layer have the same number of weights
+                neuron_size = self.output_layer.neurons[0].weights.len() + 1;
+                i += label.neuron * neuron_size;
+            },
+            LayerType::Input => {},
+            }
+        match label.weight {
+            WeightType::Bias => i += neuron_size - 1,
+            WeightType::Weight(w) => i += w,
+        }
+        i
+    }
+
 
     pub fn gradient_vector(&mut self) -> &Vec<f32> {
         assert!(self.back_propped);
@@ -435,6 +469,16 @@ mod tests {
             print!("Weights: {:?}, Gradients: {:?}", net.output_layer.neurons[0].weights, net.output_layer.neurons[0].weight_gradients);
         }
         // assert_eq!(outputs, expected_outputs);
+    }
+
+    #[test]
+    fn test_labels() {
+        let mut net = Net::<Relu, Relu, RootMeanSquared>::new(&mut rand::thread_rng(), 2, 3, vec![4, 5]);
+        let labels = net.labels();
+        for (i, label) in labels.iter().enumerate() {
+            let label = net.index_for_label(label);
+            assert_eq!(i, label);
+        }
     }
 
 }

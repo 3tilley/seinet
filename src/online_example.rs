@@ -16,6 +16,7 @@ pub fn make_net_from_online_example() -> Net<Sigmoid, Sigmoid, RootMeanSquared> 
 
 #[cfg(test)]
 mod tests {
+    use assert_approx_eq::assert_approx_eq;
     use crate::neuron::{Label, LayerType, NeuronTrait, WeightType};
     use super::*;
 
@@ -51,23 +52,30 @@ mod tests {
         // Example uses learning rate of 0.5
         let alpha = 0.5;
         let expected_new_output_weights = vec![0.35891648f32, 0.408666186, 0.511301270, 0.561370121];
+        let expected_output_gradients = expected_new_output_weights.iter().enumerate().map(|(i, w)| {
+            let (div, modu) = (i / 2, i % 2);
+            (net.output_layer.neurons[div].weights[modu] - w) / alpha
+        }).collect::<Vec<f32>>();
         // The example only uses one weight per layer, so we remove our bias weights and bias gradients
-        let mut grads = net.gradient_vector()[6..12].to_vec();
-        grads.remove(5);
-        grads.remove(2);
-        let mut weights = net.weight_vector()[6..12].to_vec();
-        weights.remove(5);
-        weights.remove(2);
-        let mut  labels = net.labels()[6..12].to_vec();
-        labels.remove(5);
-        labels.remove(2);
-        assert_eq!(labels[0], Label::new(LayerType::Output, 0, WeightType::Weight(0)));
-        assert_eq!(labels.last().unwrap(), Label::new(LayerType::Output, 1, WeightType::Weight(1)));
+        let labels = net.labels();
+        let output_labels = labels.into_iter().filter(|l| (l.layer == LayerType::Output) && (l.weight != WeightType::Bias)).collect::<Vec<Label>>();
+        let output_indices = output_labels.iter().map(|label| net.index_for_label(label)).collect::<Vec<usize>>();
+        let grads = net.gradient_vector().clone();
+        let weights = net.weight_vector().clone();
+        let calced_grads = output_indices.iter().map(|i| grads[*i]).collect::<Vec<f32>>();
+        let calced_weights = output_indices.iter().map(|i| weights[*i]).collect::<Vec<f32>>();
 
-        let actual_new_output_weights = grads.iter().zip(weights.iter()).map(|(g, w)| {
+        // TODO: Fix this and maybe make a crate
+        for i in 0..calced_grads.len() {
+            assert_approx_eq!(calced_grads[i], expected_output_gradients[i], 0.0001);
+        }
+
+        let actual_new_output_weights = calced_grads.iter().zip(calced_weights.iter()).map(|(g, w)| {
             w - alpha * g
         }).collect::<Vec<f32>>();
-        assert_eq!(actual_new_output_weights, expected_new_output_weights);
+        for i in 0..calced_weights.len() {
+            assert_approx_eq!(calced_weights[i], expected_new_output_weights[i], 0.0001);
+        }
 
 
         let expected_new_hidden_weights = vec![0.149780716, 0.19956143, 0.24975114, 0.29950229];
