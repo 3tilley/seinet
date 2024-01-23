@@ -1,7 +1,7 @@
 use rand::prelude::SliceRandom;
 use tracing::{debug, info};
-use crate::activation_functions::Relu;
-use crate::loss_functions::RootMeanSquared;
+use crate::activation_functions::{ActivationFunction, Relu};
+use crate::loss_functions::{LossFunction, RootMeanSquared};
 use crate::neuron::Net;
 
 struct MiniBatchSgdHyperParameters {
@@ -79,8 +79,8 @@ impl Progress {
 
 }
 
-pub struct BasicHarness {
-    pub net: Net<Relu, Relu, RootMeanSquared>,
+pub struct BasicHarness<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
+    pub net: Net<T, V, W>,
     pub training_data: Vec<(Vec<f32>, Vec<f32>)>,
     pub testing_data: Vec<(Vec<f32>, Vec<f32>)>,
     pub running_averages: RunningAverage,
@@ -89,8 +89,8 @@ pub struct BasicHarness {
     learning_rate: f32,
 }
 
-impl BasicHarness {
-    pub fn new(net: Net<Relu, Relu, RootMeanSquared>, mut input_data: Vec<(Vec<f32>, Vec<f32>)>, train_frac: f32) -> BasicHarness {
+impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness<T, V, W> {
+    pub fn new(net: Net<T, V, W>, mut input_data: Vec<(Vec<f32>, Vec<f32>)>, train_frac: f32, learning_rate: f32) -> BasicHarness<T, V, W> {
         let mut rng = rand::thread_rng();
         input_data.shuffle(&mut rng);
         let end_train_index = ((input_data.len() as f32) * train_frac) as usize;
@@ -101,7 +101,7 @@ impl BasicHarness {
             training_data: training.into(),
             testing_data: testing.into(),
             loss_limit: 0.00001,
-            learning_rate: 0.1,
+            learning_rate,
             progress: Progress::new(),
         }
     }
@@ -141,7 +141,7 @@ impl BasicHarness {
 
     pub fn update_weights(&mut self) {
         // TOOD: Think of the resetting the averages and avoiding this clone
-        let gradient_deltas = self.running_averages.values.iter().map(|v| -v * self.learning_rate).collect::<Vec<_>>();
-        self.net.update_weights(&gradient_deltas);
+        let weight_deltas = self.running_averages.values.iter().map(|v| -v * self.learning_rate).collect::<Vec<_>>();
+        self.net.update_weights(&weight_deltas);
     }
 }

@@ -142,7 +142,6 @@ pub struct Net<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayerType {
-    Input,
     Hidden(usize),
     Output,
 }
@@ -177,7 +176,6 @@ impl Label {
 
     pub fn to_string(&self) -> String {
         let layer_str = match self.layer {
-            LayerType::Input => "0".to_string(),
             LayerType::Hidden(i) => format!("{}", i),
             LayerType::Output => "o".to_string(),
         };
@@ -263,6 +261,7 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
             let activation_prime = layer.neurons.iter().map(|n| T::derivative(n.last_preactivation)).collect::<Vec<_>>();
             errors = activation_prime.into_iter().enumerate().map(|(j, h_prime)| {
                 let mut weight_sum = 0.0;
+                // TODO: Check this
                 for (k,ahead_neuron) in layer_ahead.neurons.iter().enumerate() {
                     weight_sum += ahead_neuron.weights[j] * errors[k];
                 }
@@ -326,13 +325,47 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                 neuron_size = self.output_layer.neurons[0].weights.len() + 1;
                 i += label.neuron * neuron_size;
             },
-            LayerType::Input => {},
             }
         match label.weight {
             WeightType::Bias => i += neuron_size - 1,
             WeightType::Weight(w) => i += w,
         }
         i
+    }
+
+    pub fn weight_for_label(&self, label: &Label) -> f32 {
+        match label.layer {
+            LayerType::Hidden(i) => {
+                match label.weight {
+                    WeightType::Bias => self.layers[i].neurons[label.neuron].bias,
+                    WeightType::Weight(w) => self.layers[i].neurons[label.neuron].weights[w],
+                }
+            }
+            LayerType::Output => {
+                match label.weight {
+                    WeightType::Bias => self.output_layer.neurons[label.neuron].bias,
+                    WeightType::Weight(w) => self.output_layer.neurons[label.neuron].weights[w],
+                }
+            }
+        }
+    }
+
+    pub fn gradient_for_label(&self, label: &Label) -> f32 {
+        assert!(self.back_propped);
+        match label.layer {
+            LayerType::Hidden(i) => {
+                match label.weight {
+                    WeightType::Bias => self.layers[i].neurons[label.neuron].bias_gradient,
+                    WeightType::Weight(w) => self.layers[i].neurons[label.neuron].weight_gradients[w],
+                }
+            }
+            LayerType::Output => {
+                match label.weight {
+                    WeightType::Bias => self.output_layer.neurons[label.neuron].bias_gradient,
+                    WeightType::Weight(w) => self.output_layer.neurons[label.neuron].weight_gradients[w],
+                }
+            }
+        }
     }
 
 
@@ -381,8 +414,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
             self.all_weights[i] = neuron.bias;
             i += 1;
         }
-        assert_eq!(i, self.all_gradients.len());
-        &self.all_gradients
+        assert_eq!(i, self.all_weights.len());
+        &self.all_weights
     }
 
     pub fn update_weights(&mut self, weight_delta: &Vec<f32>) {
@@ -405,7 +438,7 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
             neuron.bias += weight_delta[i];
             i += 1;
         }
-        assert_eq!(i, self.all_gradients.len());
+        assert_eq!(i, self.all_weights.len());
     }
 }
 

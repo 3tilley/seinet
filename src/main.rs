@@ -105,7 +105,7 @@ fn main() {
 
     let mut net = Net::<Relu, Relu, RootMeanSquared>::new(&mut rng, 1, 1, vec![]);
     let net_labels = net.labels();
-    let mut basic = BasicHarness::new(net, outputs, 0.01);
+    let mut basic = BasicHarness::new(net, outputs, 0.01, 0.001);
     basic.train_n_or_converge(10);
 
     // Plotly
