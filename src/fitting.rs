@@ -73,8 +73,8 @@ impl Progress {
         self.errors.push(errors);
         self.weights.push(weights.clone());
         self.gradients.push(gradients.clone());
-        debug!("Weights: {:?}", self.weights);
-        debug!("Gradients: {:?}", self.gradients);
+        // debug!("Weights: {:?}", self.weights);
+        // debug!("Gradients: {:?}", self.gradients);
     }
 
 }
@@ -87,10 +87,42 @@ pub struct BasicHarness<T: ActivationFunction, V: ActivationFunction, W: LossFun
     pub progress: Progress,
     loss_limit: f32,
     learning_rate: f32,
+    termination: TerminationCriteria,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum TerminationCondition {
+    Epochs(usize, f32),
+    Loss(usize, f32),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct TerminationCriteria {
+    pub epochs: u64,
+    pub loss_limit: f32,
+}
+
+impl TerminationCriteria {
+    pub fn new(epochs: u64, loss_limit: f32) -> TerminationCriteria {
+        TerminationCriteria {
+            epochs,
+            loss_limit,
+        }
+    }
+
+    pub fn is_complete(&self, epochs: usize, loss: f32) -> Option<TerminationCondition> {
+        if epochs >= self.epochs as usize {
+            Some(TerminationCondition::Epochs(epochs, loss))
+        } else if loss < self.loss_limit {
+            Some(TerminationCondition::Loss(epochs, loss))
+        } else {
+            None
+        }
+    }
 }
 
 impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness<T, V, W> {
-    pub fn new(net: Net<T, V, W>, mut input_data: Vec<(Vec<f32>, Vec<f32>)>, train_frac: f32, learning_rate: f32) -> BasicHarness<T, V, W> {
+    pub fn new(net: Net<T, V, W>, mut input_data: Vec<(Vec<f32>, Vec<f32>)>, train_frac: f32, learning_rate: f32, termination: TerminationCriteria) -> BasicHarness<T, V, W> {
         let mut rng = rand::thread_rng();
         input_data.shuffle(&mut rng);
         let end_train_index = ((input_data.len() as f32) * train_frac) as usize;
@@ -103,6 +135,7 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
             loss_limit: 0.00001,
             learning_rate,
             progress: Progress::new(),
+            termination,
         }
     }
 
@@ -112,7 +145,7 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
         loss
     }
 
-    pub fn train_epoch(&mut self) -> bool {
+    pub fn train_epoch(&mut self) -> (bool, f32) {
         // An epoch is all training data for one cycle
         let mut loss = 0.0;
         for i in 0..self.training_data.len() {
@@ -122,20 +155,29 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
         }
         loss /= self.training_data.len() as f32;
         info!("Loss: {}", loss);
-        let total_loss = loss < self.loss_limit;
+        let converged = loss < self.loss_limit;
         self.progress.update(loss, &self.net.weight_vector().clone(), &self.net.gradient_vector());
-        self.update_weights();
-        self.running_averages.reset();
-        total_loss
+        if !converged {
+            self.update_weights();
+            self.running_averages.reset();
+        }
+        (converged, loss)
     }
 
-    pub fn train_n_or_converge(&mut self, n: usize) {
+    pub fn train_n_or_converge(&mut self) {
         let mut epochs = 0;
-        let mut converged = false;
-        while !converged && epochs < n {
+        let mut finished = None;
+        while finished.is_none() {
             epochs += 1;
             info!("Epoch: {}", epochs);
-            converged = self.train_epoch();
+            let (converged, loss) = self.train_epoch();
+            finished = self.termination.is_complete(epochs, loss);
+        }
+
+        match finished {
+            Some(TerminationCondition::Epochs(epochs, loss)) => info!("Epoch limit reached: {} epochs. Loss: {}", epochs, loss),
+            Some(TerminationCondition::Loss(epochs, loss)) => info!("Converged after {} epochs. loss {}", epochs, loss),
+            None => unreachable!("Shouldn't exit loop unless converged"),
         }
     }
 

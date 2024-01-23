@@ -3,16 +3,17 @@
 // ___/\____
 fn sawtoothish(x: f32) -> f32 {
     if x < -2.0 {
-        0.0
+        -1.0
     } else if x < 0.0 {
         2.0 * x + 4.0
     } else if x < 2.0 {
         -2.0 * x + 4.0
     } else {
-        0.0
+        -1.0
     }
 }
 
 fn main() {
+
 
 }

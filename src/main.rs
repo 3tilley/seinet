@@ -4,9 +4,10 @@ use plotly::common::{Line, Mode, Title};
 use plotly::layout::{Axis, LayoutGrid};
 use plotly::{Layout, Plot, Scatter, Trace};
 use plotly::layout::GridPattern::Independent;
+use tracing::info;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
-use crate::activation_functions::{ActivationFunction, Relu};
-use crate::fitting::{BasicHarness, Progress};
+use crate::activation_functions::{ActivationFunction, LeakyRelu, Relu, Sigmoid};
+use crate::fitting::{BasicHarness, Progress, TerminationCriteria};
 use crate::loss_functions::{LossFunction, RootMeanSquared};
 use crate::neuron::{Label, Net};
 
@@ -25,6 +26,20 @@ fn relu_2_3b(x: f32) -> f32 {
         weighted_sum
     } else {
         0.0
+    }
+}
+
+// This isn't quite a sawtooth, it's meant to look something like the below
+// ___/\____
+fn sawtoothish(x: f32) -> f32 {
+    if x < -2.0 {
+        -1.0
+    } else if x < 0.0 {
+        2.0 * x + 3.0
+    } else if x < 2.0 {
+        -2.0 * x + 3.0
+    } else {
+        -1.0
     }
 }
 
@@ -101,34 +116,29 @@ fn main() {
         current += step;
     }
     let mut rng = rand::thread_rng();
-    let outputs = inputs.iter().map(|inp| (vec![*inp], vec![relu_2_3b(*inp)])).collect::<Vec<_>>();
+    let outputs = inputs.iter().map(|inp| (vec![*inp], vec![sawtoothish(*inp)])).collect::<Vec<_>>();
 
-    let mut net = Net::<Relu, Relu, RootMeanSquared>::new(&mut rng, 1, 1, vec![]);
+    let mut net = Net::<Sigmoid, Relu, RootMeanSquared>::new(&mut rng, 1, 1, vec![4,4]);
     let net_labels = net.labels();
-    let mut basic = BasicHarness::new(net, outputs, 0.01, 0.001);
-    basic.train_n_or_converge(10);
+    let term = TerminationCriteria::new(10000, 0.00001);
+    let mut basic = BasicHarness::new(net, outputs.clone(), 0.3, 0.8, term);
+    basic.train_n_or_converge();
 
-    // Plotly
-    let trace = Scatter::new(basic.progress.weights.iter().map(|w| w[0]).collect(), basic.progress.errors.clone()).mode(Mode::Markers).line(Line::new().color("blue"));
-
-    let layout = Layout::new().x_axis(Axis::new().title(Title::from("X Axis")))
-        .y_axis(Axis::new().title(Title::from("Y Axis")))
-        .title(Title::from("My Plot"));
-
-    // Weights
-    let mut plot = Plot::new();
-    plot.add_trace(trace);
-    plot.set_layout(layout.clone());
-    // plot.show();
 
     let mut out_net = basic.net;
 
     // Real func vs net
     let mut traces = make_trace_from_output(&inputs, &mut out_net);
-    let actual = Scatter::new(inputs.clone(), inputs.iter().map(|inp| relu_2_3b(*inp)).collect()).name(format!("y{}_actual", 1));
+    let (actual_inputs, actual_outputs) = outputs.clone().into_iter().map(|(input, output)| (input[0], output[0])).unzip();
+    let actual = Scatter::new(actual_inputs, actual_outputs).name(format!("y{}_actual", 1));
+    let (training_inputs, training_outputs) = basic.training_data.clone().into_iter().map(|(input, output)| (input[0], output[0])).unzip();
+    let training = Scatter::new(training_inputs, training_outputs).name("training").mode(Mode::Markers).line(Line::new().color("green"));
+    traces.push(training);
     traces.push(actual);
     let weights_trace = make_trace_from_weights(&inputs, net_labels, &basic.progress);
     let plot_2 = stacked_subplots(vec![traces, weights_trace]);
     plot_2.show();
-    sleep(Duration::from_secs(5));
+
+    info!("Weights: {:?}" , basic.progress.weights);
+    info!("Gradients: {:?}" , basic.progress.gradients);
 }

@@ -1,12 +1,4 @@
 
-pub fn relu(x: f32) -> f32 {
-    if x > 0.0 {
-        x
-    } else {
-        0.0
-    }
-}
-
 pub trait ActivationFunction: Default {
     fn activate(x: f32) -> f32;
     fn derivative(x: f32) -> f32;
@@ -29,6 +21,27 @@ impl ActivationFunction for Relu {
             1.0
         } else {
             0.0
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct LeakyRelu;
+
+impl ActivationFunction for LeakyRelu {
+    fn activate(x: f32) -> f32 {
+        if x > 0.0 {
+            x
+        } else {
+            0.1 * x
+        }
+    }
+
+    fn derivative(x: f32) -> f32 {
+        if x > 0.0 {
+            1.0
+        } else {
+            0.1
         }
     }
 }
