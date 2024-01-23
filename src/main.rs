@@ -7,7 +7,7 @@ use plotly::layout::GridPattern::Independent;
 use tracing::info;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 use crate::activation_functions::{ActivationFunction, LeakyRelu, Relu, Sigmoid};
-use crate::fitting::{BasicHarness, Progress, TerminationCriteria};
+use crate::fitting::{BasicHarness, BatchParameters, Progress, TerminationCriteria};
 use crate::loss_functions::{LossFunction, RootMeanSquared};
 use crate::neuron::{Label, Net};
 
@@ -118,10 +118,11 @@ fn main() {
     let mut rng = rand::thread_rng();
     let outputs = inputs.iter().map(|inp| (vec![*inp], vec![sawtoothish(*inp)])).collect::<Vec<_>>();
 
-    let mut net = Net::<Sigmoid, Relu, RootMeanSquared>::new(&mut rng, 1, 1, vec![4,4]);
+    let mut net = Net::<Relu, Relu, RootMeanSquared>::new(&mut rng, 1, 1, vec![4]);
     let net_labels = net.labels();
-    let term = TerminationCriteria::new(10000, 0.00001);
-    let mut basic = BasicHarness::new(net, outputs.clone(), 0.3, 0.8, term);
+    let term = TerminationCriteria::new(1000, 0.00001);
+    let batch_params = BatchParameters { batch_size: 8, shuffle: true, drop_last_if_smaller: false};
+    let mut basic = BasicHarness::new(net, outputs.clone(), 0.8, 0.2, term, batch_params);
     basic.train_n_or_converge();
 
 
@@ -139,6 +140,7 @@ fn main() {
     let plot_2 = stacked_subplots(vec![traces, weights_trace]);
     plot_2.show();
 
-    info!("Weights: {:?}" , basic.progress.weights);
-    info!("Gradients: {:?}" , basic.progress.gradients);
+    info!("Weights: {:?}" , basic.progress.weights.last().unwrap());
+    info!("Gradients: {:?}" , basic.progress.gradients.last().unwrap());
+    sleep(Duration::from_secs(1));
 }

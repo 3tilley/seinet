@@ -1,3 +1,4 @@
+use std::cmp::min;
 use rand::prelude::SliceRandom;
 use tracing::{debug, info};
 use crate::activation_functions::{ActivationFunction, Relu};
@@ -54,41 +55,6 @@ impl RunningAverage {
     }
 }
 
-pub struct Progress {
-    pub errors: Vec<f32>,
-    pub weights: Vec<Vec<f32>>,
-    pub gradients: Vec<Vec<f32>>,
-}
-
-impl Progress {
-    pub fn new() -> Progress {
-        Progress {
-            errors: Vec::new(),
-            weights: vec![],
-            gradients: vec![],
-        }
-    }
-
-    pub fn update(&mut self, errors: f32, weights: &Vec<f32>, gradients: &Vec<f32>) {
-        self.errors.push(errors);
-        self.weights.push(weights.clone());
-        self.gradients.push(gradients.clone());
-        // debug!("Weights: {:?}", self.weights);
-        // debug!("Gradients: {:?}", self.gradients);
-    }
-
-}
-
-pub struct BasicHarness<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
-    pub net: Net<T, V, W>,
-    pub training_data: Vec<(Vec<f32>, Vec<f32>)>,
-    pub testing_data: Vec<(Vec<f32>, Vec<f32>)>,
-    pub running_averages: RunningAverage,
-    pub progress: Progress,
-    loss_limit: f32,
-    learning_rate: f32,
-    termination: TerminationCriteria,
-}
 
 #[derive(Copy, Clone, Debug)]
 pub enum TerminationCondition {
@@ -121,8 +87,51 @@ impl TerminationCriteria {
     }
 }
 
+pub struct Progress {
+    pub errors: Vec<f32>,
+    pub weights: Vec<Vec<f32>>,
+    pub gradients: Vec<Vec<f32>>,
+}
+
+impl Progress {
+    pub fn new() -> Progress {
+        Progress {
+            errors: Vec::new(),
+            weights: vec![],
+            gradients: vec![],
+        }
+    }
+
+    pub fn update(&mut self, errors: f32, weights: &Vec<f32>, gradients: &Vec<f32>) {
+        self.errors.push(errors);
+        self.weights.push(weights.clone());
+        self.gradients.push(gradients.clone());
+        // debug!("Weights: {:?}", self.weights);
+        // debug!("Gradients: {:?}", self.gradients);
+    }
+
+}
+
+pub struct BatchParameters {
+    pub batch_size: usize,
+    pub shuffle: bool,
+    pub drop_last_if_smaller: bool,
+}
+
+pub struct BasicHarness<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
+    pub net: Net<T, V, W>,
+    pub training_data: Vec<(Vec<f32>, Vec<f32>)>,
+    pub testing_data: Vec<(Vec<f32>, Vec<f32>)>,
+    pub running_averages: RunningAverage,
+    pub progress: Progress,
+    loss_limit: f32,
+    learning_rate: f32,
+    termination: TerminationCriteria,
+    batch_params: BatchParameters,
+    rng: rand::rngs::ThreadRng,
+}
 impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness<T, V, W> {
-    pub fn new(net: Net<T, V, W>, mut input_data: Vec<(Vec<f32>, Vec<f32>)>, train_frac: f32, learning_rate: f32, termination: TerminationCriteria) -> BasicHarness<T, V, W> {
+    pub fn new(net: Net<T, V, W>, mut input_data: Vec<(Vec<f32>, Vec<f32>)>, train_frac: f32, learning_rate: f32, termination: TerminationCriteria, batch_params: BatchParameters) -> BasicHarness<T, V, W> {
         let mut rng = rand::thread_rng();
         input_data.shuffle(&mut rng);
         let end_train_index = ((input_data.len() as f32) * train_frac) as usize;
@@ -136,6 +145,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
             learning_rate,
             progress: Progress::new(),
             termination,
+            batch_params,
+            rng
         }
     }
 
@@ -147,13 +158,26 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
 
     pub fn train_epoch(&mut self) -> (bool, f32) {
         // An epoch is all training data for one cycle
-        let mut loss = 0.0;
-        for i in 0..self.training_data.len() {
-            // TODO: Fix this to prevent cloning
-            let (input, output) = &self.training_data[i].clone();
-            loss += self.evaluate_and_store(input, output);
+        if self.batch_params.shuffle {
+            self.training_data.shuffle(&mut self.rng);
         }
-        loss /= self.training_data.len() as f32;
+        let mut num_batches = self.training_data.len() / self.batch_params.batch_size;
+        if (num_batches % self.batch_params.batch_size != 0) && !self.batch_params.drop_last_if_smaller {
+            num_batches += 1;
+        }
+        let mut loss = 0.0;
+        for i in 0..num_batches {
+            let start = i * self.batch_params.batch_size;
+            let end = min(start + self.batch_params.batch_size, self.training_data.len());
+            // TODO: Avoid this clone
+            let batch = &self.training_data[start..end].to_vec();
+            for (input, output) in batch {
+                loss += self.evaluate_and_store(input, output);
+            }
+            loss /= self.batch_params.batch_size as f32;
+            self.update_weights();
+            self.running_averages.reset();
+        }
         info!("Loss: {}", loss);
         let converged = loss < self.loss_limit;
         self.progress.update(loss, &self.net.weight_vector().clone(), &self.net.gradient_vector());
