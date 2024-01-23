@@ -19,7 +19,7 @@ pub fn make_net_from_online_example() -> Net<Sigmoid, Sigmoid, RootMeanSquared> 
 #[cfg(test)]
 mod tests {
     use assert_approx_eq::assert_approx_eq;
-    use crate::fitting::BasicHarness;
+    use crate::fitting::{BasicHarness, BatchParameters, TerminationCriteria};
     use crate::neuron::{Label, LayerType, NeuronTrait, WeightType};
     use crate::neuron::LayerType::{Hidden, Output};
     use super::*;
@@ -167,7 +167,13 @@ mod tests {
     fn test_basic_harness() {
         let mut net = make_net_from_online_example();
         let data = vec![(training_input(), training_output())];
-        let mut harness = BasicHarness::<Sigmoid, Sigmoid, RootMeanSquared>::new(net, data, 1.0, 0.5);
+        let term = TerminationCriteria::new(1, 0.001);
+        let batch = BatchParameters {
+            batch_size: 1,
+            shuffle: false,
+            drop_last_if_smaller: false,
+        };
+        let mut harness = BasicHarness::<Sigmoid, Sigmoid, RootMeanSquared>::new(net, data, 1.0, 0.5, term, batch);
         harness.train_epoch();
         assert_approx_eq!(harness.progress.errors[0], EXPECTED_ERROR);
         for (output_label, weight) in output_labels().into_iter().zip(expected_output_weights()) {

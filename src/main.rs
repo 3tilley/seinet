@@ -67,17 +67,24 @@ fn make_trace_from_output<T: ActivationFunction, U: ActivationFunction, V: LossF
 fn make_trace_from_weights(inputs: &Vec<f32>, labels: Vec<Label>, progress: &Progress) -> Vec<Box<Scatter<f32, f32>>>{
     let xs = (0..progress.weights.len()).map(|i| i as f32).collect::<Vec<f32>>();
     let mut scatters = Vec::new();
+    scatters.push(Scatter::new(xs.clone(), progress.errors.clone()).name("error").mode(Mode::LinesMarkers).line(Line::new().color("red")));
     let mut trans_weights = vec![Vec::new(); progress.weights[0].len()];
-    for (i, timestep_weights) in progress.weights.iter().enumerate() {
-        for (i,weight) in timestep_weights.iter().enumerate() {
+    let mut trans_grads = vec![Vec::new(); progress.weights[0].len()];
+    for (i, (timesteps)) in progress.weights.iter().zip(&progress.gradients).enumerate() {
+        for (j,(weight)) in timesteps.0.iter().enumerate() {
             trans_weights[i].push(*weight);
+            trans_grads[i].push(timesteps.1[j]);
         }
     }
-    for (w, label) in trans_weights.iter().zip(labels) {
+    for (w, label) in trans_weights.iter().zip(&labels) {
         let scat = Scatter::new(xs.clone(),w.clone()).name(label.to_string());
         scatters.push(scat);
     }
-    scatters.push(Scatter::new(xs.clone(), progress.errors.clone()).name("error").mode(Mode::LinesMarkers).line(Line::new().color("red")));
+
+    for (w, label) in trans_grads.iter().zip(labels) {
+        let scat = Scatter::new(xs.clone(),w.clone()).name(format!("{}_grad",label.to_string()));
+        scatters.push(scat);
+    }
     scatters
 }
 
@@ -126,21 +133,26 @@ fn main() {
     basic.train_n_or_converge();
 
 
-    let mut out_net = basic.net;
-
     // Real func vs net
-    let mut traces = make_trace_from_output(&inputs, &mut out_net);
-    let (actual_inputs, actual_outputs) = outputs.clone().into_iter().map(|(input, output)| (input[0], output[0])).unzip();
-    let actual = Scatter::new(actual_inputs, actual_outputs).name(format!("y{}_actual", 1));
-    let (training_inputs, training_outputs) = basic.training_data.clone().into_iter().map(|(input, output)| (input[0], output[0])).unzip();
-    let training = Scatter::new(training_inputs, training_outputs).name("training").mode(Mode::Markers).line(Line::new().color("green"));
-    traces.push(training);
-    traces.push(actual);
-    let weights_trace = make_trace_from_weights(&inputs, net_labels, &basic.progress);
-    let plot_2 = stacked_subplots(vec![traces, weights_trace]);
-    plot_2.show();
+    let plot = make_training_plots(&mut inputs, outputs, &mut basic);
 
     info!("Weights: {:?}" , basic.progress.weights.last().unwrap());
     info!("Gradients: {:?}" , basic.progress.gradients.last().unwrap());
     sleep(Duration::from_secs(1));
+}
+
+fn make_training_plots(inputs: &mut Vec<f32>, outputs: Vec<(Vec<f32>, Vec<f32>)>, harness: &mut BasicHarness<Relu, Relu, RootMeanSquared>) {
+    let net_labels = harness.net.labels();
+
+
+    let mut traces = make_trace_from_output(&inputs, &mut harness.net);
+    let (actual_inputs, actual_outputs) = outputs.clone().into_iter().map(|(input, output)| (input[0], output[0])).unzip();
+    let actual = Scatter::new(actual_inputs, actual_outputs).name(format!("y{}_actual", 1));
+    let (training_inputs, training_outputs) = harness.training_data.clone().into_iter().map(|(input, output)| (input[0], output[0])).unzip();
+    let training = Scatter::new(training_inputs, training_outputs).name("training").mode(Mode::Markers).line(Line::new().color("green"));
+    traces.push(training);
+    traces.push(actual);
+    let weights_trace = make_trace_from_weights(&inputs, net_labels, &harness.progress);
+    let plot_2 = stacked_subplots(vec![traces, weights_trace]);
+    plot_2.show();
 }
