@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use rand::Rng;
 use crate::activation_functions::ActivationFunction;
 use crate::loss_functions::LossFunction;
@@ -276,6 +277,7 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                     neuron.weight_gradients[j] = errors[n] * previous_activation[j];
                 }
             }
+            layer_ahead = current_layer.deref();
         }
 
     }
