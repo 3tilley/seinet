@@ -89,6 +89,7 @@ impl TerminationCriteria {
 
 pub struct Progress {
     pub errors: Vec<f32>,
+    // Vector of timesteps, each of which is a vector of weights
     pub weights: Vec<Vec<f32>>,
     pub gradients: Vec<Vec<f32>>,
 }
@@ -106,8 +107,8 @@ impl Progress {
         self.errors.push(errors);
         self.weights.push(weights.clone());
         self.gradients.push(gradients.clone());
-        // debug!("Weights: {:?}", self.weights);
-        // debug!("Gradients: {:?}", self.gradients);
+        debug!("Weights: {:?}", self.weights);
+        debug!("Gradients: {:?}", self.gradients);
     }
 
 }
@@ -136,6 +137,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
         input_data.shuffle(&mut rng);
         let end_train_index = ((input_data.len() as f32) * train_frac) as usize;
         let (training, testing) = input_data.split_at(end_train_index);
+        assert!(training.len() > 0);
+        assert!(training.len() > batch_params.batch_size);
         BasicHarness {
             running_averages: RunningAverage::new(net.total_weights),
             net,
@@ -167,24 +170,25 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
         }
         let mut loss = 0.0;
         for i in 0..num_batches {
+            // debug!("Batch: {}", i);
             let start = i * self.batch_params.batch_size;
             let end = min(start + self.batch_params.batch_size, self.training_data.len());
             // TODO: Avoid this clone
             let batch = &self.training_data[start..end].to_vec();
+            self.running_averages.reset();
             for (input, output) in batch {
                 loss += self.evaluate_and_store(input, output);
             }
             loss /= self.batch_params.batch_size as f32;
             self.update_weights();
-            self.running_averages.reset();
         }
-        info!("Loss: {}", loss);
+        // info!("Loss: {}", loss);
         let converged = loss < self.loss_limit;
         self.progress.update(loss, &self.net.weight_vector().clone(), &self.net.gradient_vector());
-        if !converged {
-            self.update_weights();
-            self.running_averages.reset();
-        }
+        // if !converged {
+        //     self.update_weights();
+        //     self.running_averages.reset();
+        // }
         (converged, loss)
     }
 
@@ -193,7 +197,7 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
         let mut finished = None;
         while finished.is_none() {
             epochs += 1;
-            info!("Epoch: {}", epochs);
+            // info!("Epoch: {}", epochs);
             let (converged, loss) = self.train_epoch();
             finished = self.termination.is_complete(epochs, loss);
         }
@@ -206,8 +210,9 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
     }
 
     pub fn update_weights(&mut self) {
-        // TOOD: Think of the resetting the averages and avoiding this clone
+        // TODO: Think of the resetting the averages and avoiding this clone
         let weight_deltas = self.running_averages.values.iter().map(|v| -v * self.learning_rate).collect::<Vec<_>>();
+        debug!("Updating weights by: {:?}", weight_deltas);
         self.net.update_weights(&weight_deltas);
     }
 }

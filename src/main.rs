@@ -2,7 +2,7 @@ use std::thread::sleep;
 use std::time::Duration;
 use plotly::common::{Line, Mode, Title};
 use plotly::layout::{Axis, LayoutGrid};
-use plotly::{Layout, Plot, Scatter, Trace};
+use plotly::{Configuration, Layout, Plot, Scatter, Trace};
 use plotly::layout::GridPattern::Independent;
 use tracing::info;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
@@ -64,37 +64,44 @@ fn make_trace_from_output<T: ActivationFunction, U: ActivationFunction, V: LossF
     scatters
 }
 
-fn make_trace_from_weights(inputs: &Vec<f32>, labels: Vec<Label>, progress: &Progress) -> Vec<Box<Scatter<f32, f32>>>{
+fn make_trace_from_weights(inputs: &Vec<f32>, labels: Vec<Label>, progress: &Progress) -> Vec<Vec<Box<Scatter<f32, f32>>>>{
     let xs = (0..progress.weights.len()).map(|i| i as f32).collect::<Vec<f32>>();
     let mut scatters = Vec::new();
-    scatters.push(Scatter::new(xs.clone(), progress.errors.clone()).name("error").mode(Mode::LinesMarkers).line(Line::new().color("red")));
+    scatters.push(vec![Scatter::new(xs.clone(), progress.errors.clone()).name("error").mode(Mode::LinesMarkers).line(Line::new().color("red"))]);
     let mut trans_weights = vec![Vec::new(); progress.weights[0].len()];
     let mut trans_grads = vec![Vec::new(); progress.weights[0].len()];
-    for (i, (timesteps)) in progress.weights.iter().zip(&progress.gradients).enumerate() {
-        for (j,(weight)) in timesteps.0.iter().enumerate() {
-            trans_weights[i].push(*weight);
-            trans_grads[i].push(timesteps.1[j]);
+    for (_, (timestep)) in progress.weights.iter().zip(&progress.gradients).enumerate() {
+        // Timesteps is a vector of timesteps, each of which is a vector of weights and a vector of gradients
+        for (j,(weight)) in timestep.0.iter().enumerate() {
+            trans_weights[j].push(*weight);
+            trans_grads[j].push(timestep.1[j]);
         }
     }
+    scatters.push(vec![]);
+    scatters.push(vec![]);
     for (w, label) in trans_weights.iter().zip(&labels) {
         let scat = Scatter::new(xs.clone(),w.clone()).name(label.to_string());
-        scatters.push(scat);
+        scatters[1].push(scat);
     }
 
     for (w, label) in trans_grads.iter().zip(labels) {
         let scat = Scatter::new(xs.clone(),w.clone()).name(format!("{}_grad",label.to_string()));
-        scatters.push(scat);
+        scatters[2].push(scat);
     }
+    assert_eq!(scatters.len(), 3);
     scatters
 }
 
 fn stacked_subplots(traces: Vec<Vec<Box<Scatter<f32, f32>>>>) -> Plot {
     let mut plot = Plot::new();
-    let mut layout = Layout::new().grid(
+    let config = Configuration::new().autosizable(true).fill_frame(true);
+    plot.set_configuration(config);
+    let layout = Layout::new().grid(
         LayoutGrid::new()
             .columns(1)
             .rows(traces.len())
             .pattern(Independent)
+            .y_gap(0.5)
     );
     for (i, group) in traces.into_iter().enumerate() {
         let x_axis = format!("x{}", i+1);
@@ -110,7 +117,7 @@ fn stacked_subplots(traces: Vec<Vec<Box<Scatter<f32, f32>>>>) -> Plot {
 fn main() {
     println!("Starting training...");
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(tracing::Level::INFO)
         .with_target(false)
         .init();
     let mut inputs = Vec::new();
@@ -125,10 +132,9 @@ fn main() {
     let mut rng = rand::thread_rng();
     let outputs = inputs.iter().map(|inp| (vec![*inp], vec![sawtoothish(*inp)])).collect::<Vec<_>>();
 
-    let mut net = Net::<Relu, Relu, RootMeanSquared>::new(&mut rng, 1, 1, vec![4]);
-    let net_labels = net.labels();
-    let term = TerminationCriteria::new(1000, 0.00001);
-    let batch_params = BatchParameters { batch_size: 8, shuffle: true, drop_last_if_smaller: false};
+    let mut net = Net::<Relu, Sigmoid, RootMeanSquared>::new(&mut rng, 1, 1, vec![4,4]);
+    let term = TerminationCriteria::new(10000, 0.00001);
+    let batch_params = BatchParameters { batch_size: 8, shuffle: true, drop_last_if_smaller: true};
     let mut basic = BasicHarness::new(net, outputs.clone(), 0.8, 0.2, term, batch_params);
     basic.train_n_or_converge();
 
@@ -141,7 +147,7 @@ fn main() {
     sleep(Duration::from_secs(1));
 }
 
-fn make_training_plots(inputs: &mut Vec<f32>, outputs: Vec<(Vec<f32>, Vec<f32>)>, harness: &mut BasicHarness<Relu, Relu, RootMeanSquared>) {
+fn make_training_plots<T: ActivationFunction, V: ActivationFunction, W: LossFunction>(inputs: &mut Vec<f32>, outputs: Vec<(Vec<f32>, Vec<f32>)>, harness: &mut BasicHarness<T, V, W>) {
     let net_labels = harness.net.labels();
 
 
@@ -152,7 +158,9 @@ fn make_training_plots(inputs: &mut Vec<f32>, outputs: Vec<(Vec<f32>, Vec<f32>)>
     let training = Scatter::new(training_inputs, training_outputs).name("training").mode(Mode::Markers).line(Line::new().color("green"));
     traces.push(training);
     traces.push(actual);
+    let mut total_plots = vec![traces];
     let weights_trace = make_trace_from_weights(&inputs, net_labels, &harness.progress);
-    let plot_2 = stacked_subplots(vec![traces, weights_trace]);
+    total_plots.extend(weights_trace);
+    let plot_2 = stacked_subplots(total_plots);
     plot_2.show();
 }
