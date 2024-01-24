@@ -1,4 +1,5 @@
 use std::cmp::min;
+use assert_approx_eq::assert_approx_eq;
 use rand::prelude::SliceRandom;
 use tracing::{debug, info};
 use crate::activation_functions::{ActivationFunction, Relu};
@@ -178,6 +179,15 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
             self.running_averages.reset();
             for (input, output) in batch {
                 loss += self.evaluate_and_store(input, output);
+                // let grads = self.net.gradient_vector().clone();
+                // let num_grads = self.net.numerical_gradients(input, output);
+                // let labels = self.net.labels();
+                // for (i, ((grad, num_grad), label)) in grads.iter().zip(num_grads.iter()).zip(labels).enumerate() {
+                //     // assert_approx_eq!(grad, num_grad, 0.001);
+                //     println!("{}: {} {}", label.to_string(), grad, num_grad);
+                // }
+                // println!("Back-propped: {:?}", self.net.gradient_vector());
+                // println!("Numerical:    {:?}", self.net.numerical_gradients(input, output));
             }
             loss /= self.batch_params.batch_size as f32;
             self.update_weights();

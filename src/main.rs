@@ -132,8 +132,8 @@ fn main() {
     let mut rng = rand::thread_rng();
     let outputs = inputs.iter().map(|inp| (vec![*inp], vec![sawtoothish(*inp)])).collect::<Vec<_>>();
 
-    let mut net = Net::<Relu, Sigmoid, RootMeanSquared>::new(&mut rng, 1, 1, vec![4,4]);
-    let term = TerminationCriteria::new(10000, 0.00001);
+    let mut net = Net::<Relu, Sigmoid, RootMeanSquared>::new(&mut rng, 1, 1, vec![4]);
+    let term = TerminationCriteria::new(1000, 0.00001);
     let batch_params = BatchParameters { batch_size: 8, shuffle: true, drop_last_if_smaller: true};
     let mut basic = BasicHarness::new(net, outputs.clone(), 0.8, 0.2, term, batch_params);
     basic.train_n_or_converge();
@@ -144,6 +144,7 @@ fn main() {
 
     info!("Weights: {:?}" , basic.progress.weights.last().unwrap());
     info!("Gradients: {:?}" , basic.progress.gradients.last().unwrap());
+    info!("Numerical gradients: {:?}" , basic.net.numerical_gradients(&basic.training_data.last().unwrap().0.clone(), &basic.training_data.last().unwrap().1.clone()));
     sleep(Duration::from_secs(1));
 }
 

@@ -240,25 +240,28 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
             }
             intermediate
         };
-        let previous_activation = match self.layers.last() {
+        let previous_layer_activation = match self.layers.last() {
             None => &self.last_input,
             Some(layer) => &layer.output,
         };
         for (n, mut neuron) in self.output_layer.neurons.iter_mut().enumerate() {
             neuron.bias_gradient = errors[n];
             for j in 0..neuron.weight_gradients.len() {
-                neuron.weight_gradients[j] = errors[n] * previous_activation[j];
+                neuron.weight_gradients[j] = errors[n] * previous_layer_activation[j];
             }
         }
         let mut layer_ahead = &self.output_layer;
-        for (i, mut layer) in self.layers.iter_mut().enumerate().rev() {
+        for i in (0..self.layers.len()).rev() {
             // i runs from (layers.len() - 1) to 0
-            let previous_activation = if i == 0 {
-                &self.last_input
+            let (previous_activation, current_layer) = if i == 0 {
+                (&self.last_input, self.layers.get_mut(i).unwrap())
             } else {
-                &layer.output
+                let (first, second) = self.layers.split_at_mut(i);
+                (&first.last().unwrap().output, second.first_mut().unwrap())
+                //&self.layers[i-1].output
             };
-            let activation_prime = layer.neurons.iter().map(|n| T::derivative(n.last_preactivation)).collect::<Vec<_>>();
+            // let layer = self.layers.get_mut(i).unwrap();
+            let activation_prime = current_layer.neurons.iter().map(|n| T::derivative(n.last_preactivation)).collect::<Vec<_>>();
             errors = activation_prime.into_iter().enumerate().map(|(j, h_prime)| {
                 let mut weight_sum = 0.0;
                 // TODO: Check this
@@ -267,7 +270,7 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                 }
                 weight_sum * h_prime
             }).collect();
-            for (n, mut neuron) in layer.neurons.iter_mut().enumerate() {
+            for (n, mut neuron) in current_layer.neurons.iter_mut().enumerate() {
                 neuron.bias_gradient = errors[n];
                 for j in 0..neuron.weights.len() {
                     neuron.weight_gradients[j] = errors[n] * previous_activation[j];
@@ -439,6 +442,39 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
             i += 1;
         }
         assert_eq!(i, self.all_weights.len());
+    }
+
+    pub fn update_weight(&mut self, label: &Label, new_weight: f32) {
+        match label.layer {
+            LayerType::Hidden(i) => {
+                match label.weight {
+                    WeightType::Bias => self.layers[i].neurons[label.neuron].bias = new_weight,
+                    WeightType::Weight(w) => self.layers[i].neurons[label.neuron].weights[w] = new_weight,
+                }
+            }
+            LayerType::Output => {
+                match label.weight {
+                    WeightType::Bias => self.output_layer.neurons[label.neuron].bias = new_weight,
+                    WeightType::Weight(w) => self.output_layer.neurons[label.neuron].weights[w] = new_weight,
+                }
+            }
+        }
+    }
+
+    pub fn numerical_gradients(&mut self, input: &Vec<f32>, expected: &Vec<f32>) -> Vec<f32> {
+        let mut gradients = Vec::with_capacity(self.total_weights);
+        let epsilon = 0.0001;
+        for label in self.labels() {
+            let mut original_weight = self.weight_for_label(&label);
+            self.update_weight(&label, original_weight + epsilon);
+            let up_loss = self.evaluate_loss(input, expected, false);
+            self.update_weight(&label, original_weight - epsilon);
+            let down_loss = self.evaluate_loss(input, expected, false);
+            let gradient = (up_loss - down_loss) / (2.0 * epsilon);
+            gradients.push(gradient);
+            self.update_weight(&label, original_weight);
+        }
+        gradients
     }
 }
 
