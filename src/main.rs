@@ -1,13 +1,15 @@
 use std::thread::sleep;
 use std::time::Duration;
-use plotly::common::{Line, Mode, Title};
-use plotly::layout::{Axis, LayoutGrid};
+use plotly::common::{Line, Mode};
+use plotly::layout::LayoutGrid;
 use plotly::{Configuration, Layout, Plot, Scatter, Trace};
 use plotly::layout::GridPattern::Independent;
+use rand::{Rng, SeedableRng};
 use tracing::info;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
-use crate::activation_functions::{ActivationFunction, LeakyRelu, Relu, Sigmoid};
-use crate::fitting::{BasicHarness, BatchParameters, Progress, TerminationCriteria};
+use fitting_utils::{BatchParameters, Progress, TerminationCriteria};
+use crate::activation_functions::{ActivationFunction, Linear, Relu};
+use crate::fitting::BasicHarness;
 use crate::loss_functions::{LossFunction, RootMeanSquared};
 use crate::neuron::{Label, Net};
 
@@ -19,6 +21,7 @@ mod fitting;
 mod loss_functions;
 mod float_utils;
 mod online_example;
+mod fitting_utils;
 
 fn relu_2_3b(x: f32) -> f32 {
     let weighted_sum = 2.0 * x + 3.0;
@@ -129,22 +132,31 @@ fn main() {
         inputs.push(current);
         current += step;
     }
-    let mut rng = rand::thread_rng();
+    // let mut rng = rand::thread_rng();
+    let rng_seed = 2;
+    let epoch_limit = 1000;
+    let batch_params = BatchParameters::new(4, true, true);
+    let mut rng = rand::rngs::StdRng::seed_from_u64(rng_seed);
+    let rng_2 = rand::rngs::StdRng::seed_from_u64(rng_seed);
+    println!("{}", rng.gen_range(0..10));
     let outputs = inputs.iter().map(|inp| (vec![*inp], vec![sawtoothish(*inp)])).collect::<Vec<_>>();
 
-    let mut net = Net::<Relu, Sigmoid, RootMeanSquared>::new(&mut rng, 1, 1, vec![4]);
-    let term = TerminationCriteria::new(1000, 0.00001);
-    let batch_params = BatchParameters { batch_size: 8, shuffle: true, drop_last_if_smaller: true};
-    let mut basic = BasicHarness::new(net, outputs.clone(), 0.8, 0.2, term, batch_params);
+    let mut net = Net::<Relu, Linear, RootMeanSquared>::new(&mut rng, 1, 1, vec![4,4]);
+    let term = TerminationCriteria::new(epoch_limit, 0.00001);
+    let mut basic = BasicHarness::new(net, outputs.clone(), 0.8, 0.2, term, batch_params, rng);
     basic.train_n_or_converge();
 
 
     // Real func vs net
     let plot = make_training_plots(&mut inputs, outputs, &mut basic);
-
-    info!("Weights: {:?}" , basic.progress.weights.last().unwrap());
-    info!("Gradients: {:?}" , basic.progress.gradients.last().unwrap());
-    info!("Numerical gradients: {:?}" , basic.net.numerical_gradients(&basic.training_data.last().unwrap().0.clone(), &basic.training_data.last().unwrap().1.clone()));
+    let last_input = basic.training_data.last().unwrap().0.clone();
+    let last_output = basic.training_data.last().unwrap().1.clone();
+    let last_loss = basic.net.evaluate_loss(&last_input, &last_output, true);
+    // info!("Weights: {:?}" , basic.progress.weights.last().unwrap());
+    info!("Weights: {:?}" , basic.net.weight_vector());
+    // info!("Gradients: {:?}" , basic.progress.gradients.last().unwrap());
+    info!("Gradients: {:?}" , basic.net.gradient_vector());
+    info!("Numerical gradients: {:?}" , basic.net.numerical_gradients(&last_input, &last_output));
     sleep(Duration::from_secs(1));
 }
 

@@ -60,6 +60,19 @@ impl ActivationFunction for Sigmoid {
     }
 }
 
+#[derive(Default)]
+pub struct Linear;
+
+impl ActivationFunction for Linear {
+    fn activate(x: f32) -> f32 {
+        x
+    }
+
+    fn derivative(x: f32) -> f32 {
+        1.0
+    }
+}
+
 mod tests {
     use super::*;
 

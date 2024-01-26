@@ -251,23 +251,37 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                 neuron.weight_gradients[j] = errors[n] * previous_layer_activation[j];
             }
         }
-        let mut layer_ahead = &self.output_layer;
+
+        // i runs from (layers.len() - 1) to 0
         for i in (0..self.layers.len()).rev() {
-            // i runs from (layers.len() - 1) to 0
-            let (previous_activation, current_layer) = if i == 0 {
-                (&self.last_input, self.layers.get_mut(i).unwrap())
+            // This is awkward, but this reason it's done like this is to allow use to have multiple references to the
+            // layers field, where one is required to be mutable. Additionally the output layer has a different type to
+            // the other layers because of the activation function - this prevents us assigning a variable that refers
+            // to the next layer
+            let (previous_activation, current_layer, ahead_layer, output_layer) = if i == 0 {
+                let (first, second) = self.layers.split_at_mut(i+1);
+                // (&self.last_input, first.last_mut().unwrap(), second.first().unwrap())
+                (&self.last_input, first.last_mut().unwrap(), second.first(), &self.output_layer)
             } else {
                 let (first, second) = self.layers.split_at_mut(i);
-                (&first.last().unwrap().output, second.first_mut().unwrap())
-                //&self.layers[i-1].output
+                let (second, third) = second.split_at_mut(1);
+                (&first.last().unwrap().output, second.first_mut().unwrap(), third.first(), &self.output_layer)
             };
-            // let layer = self.layers.get_mut(i).unwrap();
             let activation_prime = current_layer.neurons.iter().map(|n| T::derivative(n.last_preactivation)).collect::<Vec<_>>();
             errors = activation_prime.into_iter().enumerate().map(|(j, h_prime)| {
                 let mut weight_sum = 0.0;
                 // TODO: Check this
-                for (k,ahead_neuron) in layer_ahead.neurons.iter().enumerate() {
-                    weight_sum += ahead_neuron.weights[j] * errors[k];
+                match ahead_layer {
+                    None => {
+                        for (k, ahead_neuron) in output_layer.neurons.iter().enumerate() {
+                            weight_sum += ahead_neuron.weights[j] * errors[k];
+                        }
+                    },
+                    Some(layer) => {
+                        for (k, ahead_neuron) in layer.neurons.iter().enumerate() {
+                            weight_sum += ahead_neuron.weights[j] * errors[k];
+                        }
+                    }
                 }
                 weight_sum * h_prime
             }).collect();
@@ -277,7 +291,6 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
                     neuron.weight_gradients[j] = errors[n] * previous_activation[j];
                 }
             }
-            layer_ahead = current_layer.deref();
         }
 
     }
@@ -465,7 +478,8 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> Net<T, V, W>
 
     pub fn numerical_gradients(&mut self, input: &Vec<f32>, expected: &Vec<f32>) -> Vec<f32> {
         let mut gradients = Vec::with_capacity(self.total_weights);
-        let epsilon = 0.0001;
+        // Note because of floating point precision decreasing the size of this actually worsens accuracy
+        let epsilon = 0.001;
         for label in self.labels() {
             let mut original_weight = self.weight_for_label(&label);
             self.update_weight(&label, original_weight + epsilon);

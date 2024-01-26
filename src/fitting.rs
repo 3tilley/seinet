@@ -1,9 +1,8 @@
-use std::cmp::min;
-use assert_approx_eq::assert_approx_eq;
-use rand::prelude::SliceRandom;
+use rand::prelude::{SliceRandom, StdRng};
 use tracing::{debug, info};
-use crate::activation_functions::{ActivationFunction, Relu};
-use crate::loss_functions::{LossFunction, RootMeanSquared};
+use crate::activation_functions::ActivationFunction;
+use crate::fitting_utils::{BatchParameters, Progress, RunningAverage, TerminationCondition, TerminationCriteria};
+use crate::loss_functions::LossFunction;
 use crate::neuron::Net;
 
 struct MiniBatchSgdHyperParameters {
@@ -27,98 +26,16 @@ pub trait FittingStrategy {
     
 }
 
-pub struct RunningAverage {
-    pub num_averages: usize,
-    pub size: usize,
-    pub values: Vec<f32>,
-}
 
-impl RunningAverage {
-    pub fn new(size: usize) -> RunningAverage {
-        RunningAverage {
-            num_averages: 0,
-            size,
-            values: vec![0.0; size],
-        }
-    }
-
-    pub fn update(&mut self, values: &Vec<f32>) {
-        assert_eq!(values.len(), self.size);
-        self.num_averages += 1;
-        self.values.iter_mut().zip(values).for_each(|(running, new)| {
-            *running += (new - *running) / (self.num_averages as f32);
-        })
-    }
-
-    pub fn reset(&mut self) {
-        self.num_averages = 0;
-        self.values.fill(0.0);
-    }
+pub struct TrainingHarnessBuilder<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
+    net: Net<T, V, W>,
+    training_data: Vec<(Vec<f32>, Vec<f32>)>,
+    train_frac: f32,
+    termination: TerminationCriteria,
+    batch_params: BatchParameters,
 }
 
 
-#[derive(Copy, Clone, Debug)]
-pub enum TerminationCondition {
-    Epochs(usize, f32),
-    Loss(usize, f32),
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct TerminationCriteria {
-    pub epochs: u64,
-    pub loss_limit: f32,
-}
-
-impl TerminationCriteria {
-    pub fn new(epochs: u64, loss_limit: f32) -> TerminationCriteria {
-        TerminationCriteria {
-            epochs,
-            loss_limit,
-        }
-    }
-
-    pub fn is_complete(&self, epochs: usize, loss: f32) -> Option<TerminationCondition> {
-        if epochs >= self.epochs as usize {
-            Some(TerminationCondition::Epochs(epochs, loss))
-        } else if loss < self.loss_limit {
-            Some(TerminationCondition::Loss(epochs, loss))
-        } else {
-            None
-        }
-    }
-}
-
-pub struct Progress {
-    pub errors: Vec<f32>,
-    // Vector of timesteps, each of which is a vector of weights
-    pub weights: Vec<Vec<f32>>,
-    pub gradients: Vec<Vec<f32>>,
-}
-
-impl Progress {
-    pub fn new() -> Progress {
-        Progress {
-            errors: Vec::new(),
-            weights: vec![],
-            gradients: vec![],
-        }
-    }
-
-    pub fn update(&mut self, errors: f32, weights: &Vec<f32>, gradients: &Vec<f32>) {
-        self.errors.push(errors);
-        self.weights.push(weights.clone());
-        self.gradients.push(gradients.clone());
-        debug!("Weights: {:?}", self.weights);
-        debug!("Gradients: {:?}", self.gradients);
-    }
-
-}
-
-pub struct BatchParameters {
-    pub batch_size: usize,
-    pub shuffle: bool,
-    pub drop_last_if_smaller: bool,
-}
 
 pub struct BasicHarness<T: ActivationFunction, V: ActivationFunction, W: LossFunction> {
     pub net: Net<T, V, W>,
@@ -130,16 +47,14 @@ pub struct BasicHarness<T: ActivationFunction, V: ActivationFunction, W: LossFun
     learning_rate: f32,
     termination: TerminationCriteria,
     batch_params: BatchParameters,
-    rng: rand::rngs::ThreadRng,
+    rng: rand::rngs::StdRng,
 }
 impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness<T, V, W> {
-    pub fn new(net: Net<T, V, W>, mut input_data: Vec<(Vec<f32>, Vec<f32>)>, train_frac: f32, learning_rate: f32, termination: TerminationCriteria, batch_params: BatchParameters) -> BasicHarness<T, V, W> {
-        let mut rng = rand::thread_rng();
+    pub fn new(net: Net<T, V, W>, mut input_data: Vec<(Vec<f32>, Vec<f32>)>, train_frac: f32, learning_rate: f32, termination: TerminationCriteria, batch_params: BatchParameters, mut rng: StdRng) -> BasicHarness<T, V, W> {
         input_data.shuffle(&mut rng);
         let end_train_index = ((input_data.len() as f32) * train_frac) as usize;
         let (training, testing) = input_data.split_at(end_train_index);
         assert!(training.len() > 0);
-        assert!(training.len() > batch_params.batch_size);
         BasicHarness {
             running_averages: RunningAverage::new(net.total_weights),
             net,
@@ -165,31 +80,26 @@ impl<T: ActivationFunction, V: ActivationFunction, W: LossFunction> BasicHarness
         if self.batch_params.shuffle {
             self.training_data.shuffle(&mut self.rng);
         }
-        let mut num_batches = self.training_data.len() / self.batch_params.batch_size;
-        if (num_batches % self.batch_params.batch_size != 0) && !self.batch_params.drop_last_if_smaller {
-            num_batches += 1;
-        }
         let mut loss = 0.0;
-        for i in 0..num_batches {
+        for (start, end) in self.batch_params.iterator(self.training_data.len()) {
             // debug!("Batch: {}", i);
-            let start = i * self.batch_params.batch_size;
-            let end = min(start + self.batch_params.batch_size, self.training_data.len());
             // TODO: Avoid this clone
             let batch = &self.training_data[start..end].to_vec();
             self.running_averages.reset();
             for (input, output) in batch {
-                loss += self.evaluate_and_store(input, output);
-                // let grads = self.net.gradient_vector().clone();
                 // let num_grads = self.net.numerical_gradients(input, output);
+                loss += self.evaluate_and_store(input, output);
+                let grads = self.net.gradient_vector().clone();
                 // let labels = self.net.labels();
                 // for (i, ((grad, num_grad), label)) in grads.iter().zip(num_grads.iter()).zip(labels).enumerate() {
                 //     // assert_approx_eq!(grad, num_grad, 0.001);
-                //     println!("{}: {} {}", label.to_string(), grad, num_grad);
+                //     // println!("Grad_{}: {} {}", label.to_string(), grad, num_grad);
                 // }
                 // println!("Back-propped: {:?}", self.net.gradient_vector());
                 // println!("Numerical:    {:?}", self.net.numerical_gradients(input, output));
+                // self.net.evaluate_loss(input, output, true);
             }
-            loss /= self.batch_params.batch_size as f32;
+            loss /= self.batch_params.batch_size.unwrap_or(self.training_data.len()) as f32;
             self.update_weights();
         }
         // info!("Loss: {}", loss);
